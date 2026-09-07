@@ -1,20 +1,19 @@
 import { TestBed } from "@angular/core/testing";
 
-import { AppShellComponent } from "./app.component";
+import { AppComponent } from "./app.component";
 
-describe("AppShellComponent", () => {
+describe("AppComponent", () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [AppShellComponent],
+      imports: [AppComponent],
     }).compileComponents();
   });
 
-  it("renders a public application shell without private data", () => {
-    const fixture = TestBed.createComponent(AppShellComponent);
+  it("provides only the router outlet at the root", () => {
+    const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
 
-    const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain("Budget Tracker");
-    expect(text).not.toContain("Household");
+    expect(fixture.nativeElement.querySelector("router-outlet")).not.toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain("Household");
   });
 });

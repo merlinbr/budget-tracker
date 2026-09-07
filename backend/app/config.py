@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///../data/budget.db"
     session_secret: str = "development-only-secret"
     session_max_age_days: int = 30
-    allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:4200"])
+    allowed_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:4200", "http://127.0.0.1:4200"]
+    )
     trusted_hosts: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1"])
     secure_cookies: bool = False
 
@@ -31,8 +33,8 @@ class Settings(BaseSettings):
     @field_validator("session_max_age_days")
     @classmethod
     def validate_session_age(cls, value: int) -> int:
-        if value < 1 or value > 365:
-            raise ValueError("session_max_age_days must be between 1 and 365")
+        if value < 1 or value > 30:
+            raise ValueError("session_max_age_days must be between 1 and 30")
         return value
 
     @model_validator(mode="after")
@@ -42,9 +44,16 @@ class Settings(BaseSettings):
 
         if self.app_env != "production":
             return self
-
         if (
             len(self.session_secret) < 32
+            or len(set(self.session_secret)) < 8
+            or any(
+                len(self.session_secret) % width == 0
+                and self.session_secret
+                == self.session_secret[:width]
+                * (len(self.session_secret) // width)
+                for width in range(1, len(self.session_secret) // 2 + 1)
+            )
             or self.session_secret.lower() in {
                 "change_me",
                 "change-me",

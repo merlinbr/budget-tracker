@@ -1,0 +1,60 @@
+<main class="login-page" aria-labelledby="login-title">
+  <section class="login-card">
+    <p class="eyebrow">Private household finance</p>
+    <h1 id="login-title">Sign in to Budget Tracker</h1>
+    <p class="intro">Use your household account to continue.</p>
+
+    @if (auth.restoration() === "error") {
+      <div class="message error" role="alert">
+        {{ restoreError() ?? "The session could not be restored." }}
+        <button type="button" (click)="retryRestore()" [disabled]="isRetrying()">
+          {{ isRetrying() ? "Retrying…" : "Retry session" }}
+        </button>
+      </div>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="submit()" [attr.aria-busy]="isSubmitting()">
+      <div class="field">
+        <label for="username">Username</label>
+        <input
+          id="username"
+          type="text"
+          formControlName="username"
+          autocomplete="username"
+          autocapitalize="none"
+          spellcheck="false"
+          [attr.aria-invalid]="fieldError('username') ? 'true' : null"
+          aria-describedby="username-error"
+        />
+        <p id="username-error" class="field-error" aria-live="polite">
+          {{ fieldError("username") ?? "" }}
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <input
+          id="password"
+          type="password"
+          formControlName="password"
+          autocomplete="current-password"
+          [attr.aria-invalid]="fieldError('password') ? 'true' : null"
+          aria-describedby="password-error"
+        />
+        <p id="password-error" class="field-error" aria-live="polite">
+          {{ fieldError("password") ?? "" }}
+        </p>
+      </div>
+
+      @if (submitError(); as errorMessage) {
+        <p id="login-error" class="message error" role="alert" aria-live="assertive">
+          {{ errorMessage }}
+        </p>
+      }
+
+      <button type="submit" [disabled]="isSubmitting()">
+        {{ isSubmitting() ? "Signing in…" : "Sign in" }}
+      </button>
+    </form>
+  </section>
+</main>
