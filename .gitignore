@@ -1,0 +1,35 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+backend/.venv/
+backend/data/
+
+# SQLite and backup artifacts
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-*
+backups/
+
+# Node and generated frontend output
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/playwright-report/
+frontend/test-results/
+
+# Caddy state when run outside Compose
+caddy-state/
+
+# Private deployment material
+*.pem
+*.key

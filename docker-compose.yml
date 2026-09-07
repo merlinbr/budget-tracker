@@ -1,0 +1,49 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      APP_ENV: ${APP_ENV:?Set APP_ENV in .env}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      SESSION_MAX_AGE_DAYS: ${SESSION_MAX_AGE_DAYS:-30}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Set ALLOWED_ORIGINS in .env}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:?Set TRUSTED_HOSTS in .env}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+    volumes:
+      - ./data:/app/data
+    expose:
+      - "8000"
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  caddy:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      BUDGET_HOST: ${BUDGET_HOST:?Set BUDGET_HOST in .env}
+    ports:
+      - "${HTTPS_BIND_ADDRESS:?Set HTTPS_BIND_ADDRESS in .env}:${HTTPS_PORT:?Set HTTPS_PORT in .env}:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
