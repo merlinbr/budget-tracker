@@ -100,6 +100,17 @@ def client(test_app) -> TestClient:
 
 
 @pytest.fixture
+def authenticated_client(client, seeded_user, csrf_headers):
+    response = client.post(
+        "/api/auth/login",
+        json={"username": seeded_user.username, "password": seeded_user.password},
+        headers=csrf_headers(),
+    )
+    assert response.status_code == 200, response.text
+    return client
+
+
+@pytest.fixture
 def db_session(test_app) -> Session:
     db = test_app.state.session_factory()
     try:

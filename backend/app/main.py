@@ -8,6 +8,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .auth.csrf import csrf_guard
 from .auth.rate_limit import LoginRateLimiter
 from .auth.router import router as auth_router
+from .accounts import router as accounts_router
+from .categories import router as categories_router
 from .auth.sessions import clear_auth_cookies
 from .config import Settings, get_settings
 from .db import get_db
@@ -44,6 +46,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(auth_router)
+    app.include_router(accounts_router)
+    app.include_router(categories_router)
     return app
 
 
