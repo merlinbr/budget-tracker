@@ -68,4 +68,4 @@ python -m pytest tests/test_accounts.py tests/test_categories.py tests/test_auth
 
 Result: **PASS — 19 passed**, with 21 dependency deprecation warnings.
 
-The follow-up test-only changes are committed separately after this report update.
+- Follow-up commit: `3cb4bae` — `test: complete account category security regressions`.
