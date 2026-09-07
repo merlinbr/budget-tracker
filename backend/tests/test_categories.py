@@ -103,7 +103,15 @@ def test_category_strict_writes_and_failed_rename_preserve_data(
     )
     assert created.status_code == 201, created.text
     category = created.json()
-    assert category["name"] == name
+    unicode_name = " " + ("界" * 100) + " "
+    unicode_response = client.post(
+        "/api/categories",
+        json={"name": unicode_name, "type": "income"},
+        headers=csrf_headers(),
+    )
+    assert unicode_response.status_code == 201, unicode_response.text
+    assert unicode_response.json()["name"] == "界" * 100
+    assert len(unicode_response.json()["name"]) == 100
     url = f"/api/categories/{category['id']}"
     forged = {
         "name": "Forged",
@@ -113,8 +121,10 @@ def test_category_strict_writes_and_failed_rename_preserve_data(
         "household_id": 999,
         "isArchived": True,
     }
+    before_rows = client.get("/api/categories").json()
     rejected = client.post("/api/categories", json=forged, headers=csrf_headers())
     assert rejected.status_code == 422
+    assert client.get("/api/categories").json() == before_rows
     before = client.get(url).json()
     rejected_update = client.put(url, json=forged, headers=csrf_headers())
     assert rejected_update.status_code == 422

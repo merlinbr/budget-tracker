@@ -69,3 +69,18 @@ python -m pytest tests/test_accounts.py tests/test_categories.py tests/test_auth
 Result: **PASS — 19 passed**, with 21 dependency deprecation warnings.
 
 - Follow-up commit: `3cb4bae` — `test: complete account category security regressions`.
+
+## Final Review Fix
+
+Added real authenticated HTTP assertions for both account and category resources that:
+
+- Create a name consisting of exactly 100 Unicode code points with surrounding whitespace and assert the API returns the trimmed 100-code-point value.
+- Snapshot the public list before forged ownership/output-field POSTs, assert `422`, and assert the public list is unchanged afterward.
+
+Final focused command from `backend`:
+
+```text
+python -m pytest tests/test_accounts.py tests/test_categories.py tests/test_authorization.py
+```
+
+Result: **PASS — 19 passed**, with 21 dependency deprecation warnings.

@@ -116,6 +116,16 @@ def test_account_strict_writes_and_failed_rename_preserve_data(
     assert created_rows[2]["initialBalance"] == -1
     assert created_rows[3]["initialBalance"] == min_cents
 
+    unicode_name = " " + ("界" * 100) + " "
+    unicode_response = client.post(
+        "/api/accounts",
+        json={"name": unicode_name, "type": "other", "initialBalance": 0},
+        headers=csrf_headers(),
+    )
+    assert unicode_response.status_code == 201, unicode_response.text
+    assert unicode_response.json()["name"] == "界" * 100
+    assert len(unicode_response.json()["name"]) == 100
+
     rejected_type = client.post(
         "/api/accounts",
         json={"name": "Unknown Type", "type": "unknown", "initialBalance": 0},
@@ -132,10 +142,12 @@ def test_account_strict_writes_and_failed_rename_preserve_data(
         "balance": 100,
         "isArchived": True,
     }
+    before_rows = client.get("/api/accounts").json()
     rejected_forged = client.post(
         "/api/accounts", json=forged, headers=csrf_headers()
     )
     assert rejected_forged.status_code == 422
+    assert client.get("/api/accounts").json() == before_rows
     detail_url = f"/api/accounts/{created_rows[0]['id']}"
     before = client.get(detail_url).json()
     rejected_update = client.put(detail_url, json=forged, headers=csrf_headers())
