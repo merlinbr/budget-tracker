@@ -9,11 +9,21 @@ from sqlalchemy.orm import Session
 
 from .auth.passwords import hash_password, validate_password
 from .db import SessionLocal
-from .models import Household, HouseholdMember, User, UserSession, utc_now
+from .models import Category, Household, HouseholdMember, User, UserSession, utc_now
 
 
 class CLIError(Exception):
     pass
+
+
+DEFAULT_CATEGORIES = (
+    ("income", "Salary"), ("income", "Bonus"), ("income", "Other Income"),
+    ("expense", "Housing"), ("expense", "Groceries"), ("expense", "Restaurants"),
+    ("expense", "Car"), ("expense", "Public Transport"), ("expense", "Insurance"),
+    ("expense", "Subscriptions"), ("expense", "Kids"), ("expense", "Health"),
+    ("expense", "Shopping"), ("expense", "Entertainment"), ("expense", "Travel"),
+    ("expense", "Utilities"), ("expense", "Other"),
+)
 
 
 def _prompt_name(label: str) -> str:
@@ -80,6 +90,10 @@ def _init_household(db: Session) -> int:
     username = _prompt_username()
     display_name = _prompt_name("Display name")
     password = _prompt_password()
+    answer = input("Create default categories? [Y/n]: ").strip().lower()
+    if answer not in {"", "y", "yes", "n", "no"}:
+        raise CLIError("Answer yes or no.")
+    seed_categories = answer in {"", "y", "yes"}
 
     _begin_immediate(db)
     if db.scalar(select(func.count()).select_from(Household)):
@@ -96,6 +110,11 @@ def _init_household(db: Session) -> int:
         household_id=household.id,
         role="owner",
     )
+    if seed_categories:
+        db.add_all(
+            Category(household_id=household.id, type=kind, name=name)
+            for kind, name in DEFAULT_CATEGORIES
+        )
     db.commit()
     print(f"Initialized household and owner {user.username}.")
     return 0
