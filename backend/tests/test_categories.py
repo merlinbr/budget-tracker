@@ -89,3 +89,64 @@ def test_category_query_and_ordering(authenticated_client, csrf_headers):
         ("income", "Bonus"),
         ("income", "Salary"),
     ]
+
+
+def test_category_strict_writes_and_failed_rename_preserve_data(
+    authenticated_client, csrf_headers
+):
+    client = authenticated_client
+    name = "<script>alert(1)</script>"
+    created = client.post(
+        "/api/categories",
+        json={"name": name, "type": "expense"},
+        headers=csrf_headers(),
+    )
+    assert created.status_code == 201, created.text
+    category = created.json()
+    assert category["name"] == name
+    url = f"/api/categories/{category['id']}"
+    forged = {
+        "name": "Forged",
+        "type": "income",
+        "id": category["id"],
+        "householdId": 999,
+        "household_id": 999,
+        "isArchived": True,
+    }
+    rejected = client.post("/api/categories", json=forged, headers=csrf_headers())
+    assert rejected.status_code == 422
+    before = client.get(url).json()
+    rejected_update = client.put(url, json=forged, headers=csrf_headers())
+    assert rejected_update.status_code == 422
+    assert client.get(url).json() == before
+    target = client.post(
+        "/api/categories",
+        json={"name": "Rename Target", "type": "expense"},
+        headers=csrf_headers(),
+    ).json()
+    failed_rename = client.put(
+        url, json={"name": target["name"]}, headers=csrf_headers()
+    )
+    assert failed_rename.status_code == 409
+    assert client.get(url).json() == before
+
+
+def test_category_archive_reserves_name_and_has_no_delete_route(
+    authenticated_client, csrf_headers
+):
+    client = authenticated_client
+    created = client.post(
+        "/api/categories",
+        json={"name": "Retained", "type": "expense"},
+        headers=csrf_headers(),
+    ).json()
+    url = f"/api/categories/{created['id']}"
+    assert client.post(url + "/archive", headers=csrf_headers()).status_code == 204
+    duplicate = client.post(
+        "/api/categories",
+        json={"name": " Retained ", "type": "expense"},
+        headers=csrf_headers(),
+    )
+    assert duplicate.status_code == 409
+    assert client.delete(url, headers=csrf_headers()).status_code == 405
+    assert client.get(url).json()["isArchived"] is True

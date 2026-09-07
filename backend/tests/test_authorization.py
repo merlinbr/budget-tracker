@@ -219,6 +219,16 @@ def test_financial_resources_are_isolated_between_households(
         ).status_code == 204
     assert client.get(resource_url).json()["isArchived"] is True
 
+    with TestClient(test_app) as archived_foreign_client:
+        _login_as(
+            archived_foreign_client, user_b.username, "household b password"
+        )
+        for query in ("", "?includeArchived=true"):
+            rows = archived_foreign_client.get(
+                f"/api/{resource}{query}"
+            ).json()
+            assert all(row["id"] != resource_id for row in rows)
+
 
 def _csrf_headers(client: TestClient) -> dict[str, str]:
     response = client.get("/api/auth/csrf")
@@ -226,3 +236,110 @@ def _csrf_headers(client: TestClient) -> dict[str, str]:
     token = client.cookies.get("XSRF-TOKEN")
     assert token
     return {"Origin": "http://127.0.0.1:4200", "X-XSRF-TOKEN": token}
+
+
+@pytest.mark.parametrize(
+    ("resource", "create_payload", "update_payload"),
+    [
+        (
+            "accounts",
+            {"name": "No Session", "type": "checking", "initialBalance": 0},
+            {"name": "Still No Session", "type": "cash", "initialBalance": 1},
+        ),
+        (
+            "categories",
+            {"name": "No Session", "type": "expense"},
+            {"name": "Still No Session"},
+        ),
+    ],
+)
+def test_financial_routes_require_authentication(
+    resource, create_payload, update_payload, client
+):
+    detail_url = f"/api/{resource}/1"
+    assert client.get(f"/api/{resource}").status_code == 401
+    assert client.get(detail_url).status_code == 401
+    anonymous_headers = _csrf_headers(client)
+    assert (
+        client.post(
+            f"/api/{resource}", json=create_payload, headers=anonymous_headers
+        ).status_code
+        == 401
+    )
+    anonymous_headers = _csrf_headers(client)
+    assert (
+        client.put(
+            detail_url, json=update_payload, headers=anonymous_headers
+        ).status_code
+        == 401
+    )
+    anonymous_headers = _csrf_headers(client)
+    assert (
+        client.post(detail_url + "/archive", headers=anonymous_headers).status_code
+        == 401
+    )
+
+
+@pytest.mark.parametrize(
+    ("resource", "create_payload", "update_payload"),
+    [
+        (
+            "accounts",
+            {"name": "CSRF Protected", "type": "checking", "initialBalance": 0},
+            {"name": "Changed", "type": "cash", "initialBalance": 1},
+        ),
+        (
+            "categories",
+            {"name": "CSRF Protected", "type": "expense"},
+            {"name": "Changed"},
+        ),
+    ],
+)
+def test_csrf_and_origin_rejections_preserve_financial_data(
+    resource,
+    create_payload,
+    update_payload,
+    client,
+    test_app,
+    seeded_user,
+):
+    login_as = _login_as
+    login_as(client, seeded_user.username, seeded_user.password)
+    created = client.post(
+        f"/api/{resource}",
+        json=create_payload,
+        headers=_csrf_headers(client),
+    )
+    assert created.status_code == 201, created.text
+    url = f"/api/{resource}/{created.json()['id']}"
+    before = client.get(url).json()
+
+    missing_csrf = _csrf_headers(client)
+    missing_csrf.pop("X-XSRF-TOKEN")
+    assert client.put(url, json=update_payload, headers=missing_csrf).status_code == 403
+    assert client.get(url).json() == before
+
+    with TestClient(test_app) as second_client:
+        login_as(second_client, seeded_user.username, seeded_user.password)
+        foreign_headers = _csrf_headers(second_client)
+        foreign_headers["Origin"] = "http://127.0.0.1:4200"
+        assert client.post(url + "/archive", headers=foreign_headers).status_code == 403
+    assert client.get(url).json() == before
+
+    disallowed_origin = _csrf_headers(client)
+    disallowed_origin["Origin"] = "http://evil.example"
+    assert client.put(url, json=update_payload, headers=disallowed_origin).status_code == 403
+    assert client.get(url).json() == before
+
+    valid = _csrf_headers(client)
+    assert client.post(url + "/archive", headers=valid).status_code == 204
+
+
+def _login_as(test_client: TestClient, username: str, password: str) -> None:
+    csrf = _csrf_headers(test_client)
+    response = test_client.post(
+        "/api/auth/login",
+        json={"username": username, "password": password},
+        headers=csrf,
+    )
+    assert response.status_code == 200, response.text
