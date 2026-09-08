@@ -42,4 +42,4 @@ The focused page specs exercise native controls/events, negative comma money, in
 
 ## Commit
 
-Implementation commit: pending final commit SHA.
+Implementation commit: `84c450f` (amended once to include this final SHA).
