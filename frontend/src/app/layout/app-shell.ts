@@ -28,6 +28,9 @@ import { PendingFormService } from "../core/pending-form.service";
         @if (logoutError(); as errorMessage) {
           <p class="message error" role="alert">{{ errorMessage }}</p>
         }
+        @if (pendingForms.pending()) {
+          <p class="message" role="status" aria-live="polite">The current save or archive must finish before navigating away.</p>
+        }
         <router-outlet />
       </main>
     }
