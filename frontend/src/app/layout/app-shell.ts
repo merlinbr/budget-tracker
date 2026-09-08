@@ -3,6 +3,7 @@ import { Component, inject, signal } from "@angular/core";
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from "@angular/router";
 
 import { AuthService } from "../core/auth/auth.service";
+import { PendingFormService } from "../core/pending-form.service";
 @Component({
   selector: "app-shell",
   standalone: true,
@@ -20,9 +21,9 @@ import { AuthService } from "../core/auth/auth.service";
           </button>
         </header>
         <nav aria-label="Primary navigation">
-          <a routerLink="/dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" ariaCurrentWhenActive="page">Dashboard</a>
-          <a routerLink="/accounts" routerLinkActive="active" ariaCurrentWhenActive="page">Accounts</a>
-          <a routerLink="/categories" routerLinkActive="active" ariaCurrentWhenActive="page">Categories</a>
+          <a routerLink="/dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" ariaCurrentWhenActive="page" (click)="guardNavigation($event)">Dashboard</a>
+          <a routerLink="/accounts" routerLinkActive="active" ariaCurrentWhenActive="page" (click)="guardNavigation($event)">Accounts</a>
+          <a routerLink="/categories" routerLinkActive="active" ariaCurrentWhenActive="page" (click)="guardNavigation($event)">Categories</a>
         </nav>
         @if (logoutError(); as errorMessage) {
           <p class="message error" role="alert">{{ errorMessage }}</p>
@@ -96,8 +97,20 @@ export class AppShellComponent {
   private readonly router = inject(Router);
   readonly isLoggingOut = signal(false);
   readonly logoutError = signal<string | null>(null);
+  readonly pendingForms = inject(PendingFormService);
+
+  guardNavigation(event: Event): void {
+    if (this.pendingForms.pending()) {
+      event.preventDefault();
+      this.logoutError.set("Finish saving the current form before navigating away.");
+    }
+  }
 
   logout(): void {
+    if (this.pendingForms.pending()) {
+      this.logoutError.set("Finish saving the current form before signing out.");
+      return;
+    }
     if (this.isLoggingOut()) {
       return;
     }

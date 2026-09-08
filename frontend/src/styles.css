@@ -39,3 +39,5 @@ h1 {
   margin: 0;
   color: #52617a;
 }
+
+.page, .card, .card h3, .card strong { overflow-wrap: anywhere; }

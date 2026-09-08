@@ -1,4 +1,5 @@
 import { HttpErrorResponse } from "@angular/common/http";
+import { PendingFormService } from "../../core/pending-form.service";
 import { Component, ElementRef, inject, signal, viewChild } from "@angular/core";
 import {
   AbstractControl,
@@ -30,8 +31,9 @@ function signedMoneyValidator(control: AbstractControl): ValidationErrors | null
         <button #addAccountButton type="button" (click)="startAdd()" [disabled]="isSubmitting() || archivePending()">Add account</button>
       </div>
       <label class="toggle"><input type="checkbox" [checked]="includeArchived()" (change)="toggleArchived($event)" [disabled]="isLoading() || isSubmitting()" /> Show archived accounts</label>
-      @if (isLoading()) { <p role="status" aria-live="polite">Loading accounts…</p> }
       @if (listError(); as error) { <p class="message error" role="alert">{{ error }} <button type="button" (click)="loadList()">Retry</button></p> }
+      @if (saveError(); as error) { <p class="message error" role="alert">{{ error }}</p> }
+      @if (announcement(); as message) { <p class="message" role="status" aria-live="polite">{{ message }}</p> }
       @if (!isLoading() && !listError() && accounts().length === 0) { <p class="empty">{{ includeArchived() ? "No accounts, including archived accounts." : "No accounts yet." }} <button type="button" (click)="startAdd()">Add an account</button></p> }
       @if (accounts().length) {
         <ul class="cards">
@@ -58,7 +60,6 @@ function signedMoneyValidator(control: AbstractControl): ValidationErrors | null
           <div class="field"><label for="account-type">Type</label><select id="account-type" formControlName="type" aria-describedby="account-type-error"><option value="checking">Checking</option><option value="savings">Savings</option><option value="credit_card">Credit card</option><option value="cash">Cash</option><option value="other">Other</option></select><p id="account-type-error" class="field-error" aria-live="polite">{{ fieldError("type") }}</p></div>
           <div class="field"><label for="initial-balance">Initial balance (EUR)</label><input id="initial-balance" type="text" inputmode="decimal" formControlName="initialBalance" aria-describedby="initial-balance-hint initial-balance-error" [attr.aria-invalid]="form.controls.initialBalance.invalid && form.controls.initialBalance.touched" /><p id="initial-balance-hint">Use up to 14 whole digits and two decimals, comma or dot, no grouping. A leading minus means money owed.</p><p id="initial-balance-error" class="field-error" aria-live="polite">{{ initialBalanceError() }}</p></div>
           @if (balanceChanged()) { <div class="warning"><p>Changing the initial balance changes the account's starting money.</p><label><input type="checkbox" formControlName="acknowledgeBalanceChange" /> I understand this balance change</label><p class="field-error" aria-live="polite">{{ fieldError("acknowledgeBalanceChange") }}</p></div> }
-          @if (saveError(); as error) { <p class="message error" role="alert">{{ error }}</p> }
           <button type="submit" [disabled]="isSubmitting()">{{ isSubmitting() ? "Saving…" : "Save account" }}</button><button type="button" (click)="cancelForm()" [disabled]="isSubmitting()">Cancel</button>
         </form>
       }
@@ -70,6 +71,7 @@ function signedMoneyValidator(control: AbstractControl): ValidationErrors | null
 })
 export class AccountsPage {
   readonly accountsService = inject(AccountsService);
+  readonly pendingForms = inject(PendingFormService);
   private readonly formBuilder = inject(FormBuilder);
   private readonly archiveConfirmation = viewChild<ElementRef<HTMLElement>>("archiveConfirmation");
   readonly form = this.formBuilder.nonNullable.group({
@@ -85,6 +87,7 @@ export class AccountsPage {
   readonly listError = signal<string | null>(null);
   readonly isSubmitting = signal(false);
   readonly saveError = signal<string | null>(null);
+  readonly announcement = signal<string | null>(null);
   readonly fieldErrors = signal<Record<string, string>>({});
   readonly editingAccount = signal<Account | null>(null);
   readonly formOpen = signal(false);
@@ -115,16 +118,15 @@ export class AccountsPage {
       complete: () => { if (request === this.listRequest) this.isLoading.set(false); },
     });
   }
-
   toggleArchived(event: Event): void { this.includeArchived.set((event.target as HTMLInputElement).checked); this.loadList(); }
 
   startAdd(): void {
-    this.editingAccount.set(null); this.formOpen.set(true); this.saveError.set(null); this.fieldErrors.set({}); this.form.reset({ name: "", type: "checking", initialBalance: "0.00", acknowledgeBalanceChange: false });
+    this.editingAccount.set(null); this.formOpen.set(true); this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.form.reset({ name: "", type: "checking", initialBalance: "0.00", acknowledgeBalanceChange: false });
   }
 
   startEdit(account: Account): void {
-    this.saveError.set(null); this.fieldErrors.set({}); this.accountsService.get(account.id).subscribe({
-      next: (detail) => { if (detail.isArchived) { this.listError.set("That account is archived and can no longer be edited."); this.loadList(); return; } this.editingAccount.set(detail); this.formOpen.set(true); this.form.reset({ name: detail.name, type: detail.type, initialBalance: signedMoneyInput(detail.initialBalance), acknowledgeBalanceChange: false }); },
+    this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.accountsService.get(account.id).subscribe({
+      next: (detail) => { if (detail.isArchived) { this.formOpen.set(false); this.editingAccount.set(null); this.listError.set("That account is archived and read-only."); this.loadList(); return; } this.editingAccount.set(detail); this.formOpen.set(true); this.form.reset({ name: detail.name, type: detail.type, initialBalance: signedMoneyInput(detail.initialBalance), acknowledgeBalanceChange: false }); },
       error: (error: unknown) => { this.saveError.set(this.errorMessage(error, "That account is no longer available.")); this.loadList(); },
     });
   }
@@ -140,9 +142,10 @@ export class AccountsPage {
     this.isSubmitting.set(true);
     const body = { name: raw.name.trim(), type: raw.type, initialBalance: cents };
     const write = original ? this.accountsService.update(original.id, body) : this.accountsService.create(body);
+    this.pendingForms.setPending(true);
     write.subscribe({
-      next: () => { this.isSubmitting.set(false); this.formOpen.set(false); this.editingAccount.set(null); this.loadList("Account saved, but the list could not be refreshed."); },
-      error: (error: unknown) => { this.isSubmitting.set(false); this.applyServerError(error, "Could not save account."); },
+      next: () => { this.pendingForms.setPending(false); this.isSubmitting.set(false); this.formOpen.set(false); this.editingAccount.set(null); this.announcement.set(original ? "Account updated." : "Account saved."); this.loadList("Saved, but the account list could not be refreshed."); },
+      error: (error: unknown) => { this.pendingForms.setPending(false); this.isSubmitting.set(false); this.applyServerError(error, "Could not save account."); },
     });
   }
 
@@ -150,15 +153,15 @@ export class AccountsPage {
   cancelArchive(): void { this.archiveTarget.set(null); queueMicrotask(() => this.archiveTrigger?.focus()); }
   confirmArchive(): void {
     const target = this.archiveTarget(); if (!target || this.archivePending()) return;
-    this.archivePending.set(true); this.accountsService.archive(target.id).subscribe({
-      next: () => { this.archivePending.set(false); this.archiveTarget.set(null); this.loadList(); queueMicrotask(() => this.addButton()?.nativeElement.focus()); },
-      error: (error: unknown) => { this.archivePending.set(false); this.saveError.set(this.errorMessage(error, "Could not archive account.")); },
+    this.archivePending.set(true); this.pendingForms.setPending(true); this.accountsService.archive(target.id).subscribe({
+      next: () => { this.pendingForms.setPending(false); this.archivePending.set(false); this.archiveTarget.set(null); if (this.editingAccount()?.id === target.id) { this.formOpen.set(false); this.editingAccount.set(null); } this.announcement.set("Account archived."); this.loadList(); queueMicrotask(() => this.addButton()?.nativeElement.focus()); },
+      error: (error: unknown) => { this.pendingForms.setPending(false); this.archivePending.set(false); this.saveError.set(this.errorMessage(error, "Could not archive account.")); if (error instanceof HttpErrorResponse && error.status === 404) this.loadList(); },
     });
   }
 
+  fieldError(field: string): string { if (field === "acknowledgeBalanceChange" && this.form.controls.acknowledgeBalanceChange.hasError("required")) return "Please acknowledge the balance change."; const server = this.fieldErrors()[field]; if (server) return server; const control = this.form.get(field); if (!control?.touched) return ""; if (control.hasError("required")) return "This field is required."; if (control.hasError("minlength")) return "Use at least 1 character."; if (control.hasError("maxlength")) return "Use no more than 100 characters."; return ""; }
   balanceChanged(): boolean { const original = this.editingAccount(); const cents = parseSignedMoney(this.form.controls.initialBalance.value); return !!original && cents !== null && cents !== original.initialBalance; }
   initialBalanceError(): string { return this.form.controls.initialBalance.touched && this.form.controls.initialBalance.invalid ? (this.fieldErrors()["initialBalance"] ?? "Enter a valid amount with up to two decimals.") : (this.fieldErrors()["initialBalance"] ?? ""); }
-  fieldError(field: string): string { if (field === "acknowledgeBalanceChange" && this.form.controls.acknowledgeBalanceChange.hasError("required")) return "Please acknowledge the balance change."; return this.fieldErrors()[field] ?? (this.form.get(field)?.touched && this.form.get(field)?.hasError("required") ? "This field is required." : ""); }
 
   private applyServerError(error: unknown, fallback: string): void { if (error instanceof HttpErrorResponse && error.error?.error?.fields) this.fieldErrors.set(error.error.error.fields); this.saveError.set(this.errorMessage(error, fallback)); }
   private errorMessage(error: unknown, fallback: string): string { if (error instanceof HttpErrorResponse && error.status === 0) return "Could not connect. Check your connection and try again."; return error instanceof HttpErrorResponse && typeof error.error?.error?.message === "string" ? error.error.error.message : fallback; }

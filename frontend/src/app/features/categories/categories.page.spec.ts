@@ -23,8 +23,14 @@ describe("CategoriesPage", () => {
 
   it.each([{ type: "expense" as const }, { type: "income" as const }])("creates a $type category", ({ type }) => {
     fixture.componentInstance.startAdd();
-    fixture.componentInstance.form.setValue({ name: type === "expense" ? "Groceries" : "Salary", type });
-    fixture.componentInstance.save();
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const name = type === "expense" ? "Groceries" : "Salary";
+    (element.querySelector("#category-name") as HTMLInputElement).value = name;
+    element.querySelector("#category-name")!.dispatchEvent(new Event("input", { bubbles: true }));
+    (element.querySelector("#category-type") as HTMLSelectElement).value = type;
+    element.querySelector("#category-type")!.dispatchEvent(new Event("change", { bubbles: true }));
+    element.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     const request = http.expectOne({ method: "POST", url: "/api/categories" });
     expect(request.request.body).toEqual({ name: type === "expense" ? "Groceries" : "Salary", type });
     request.flush({ ...row, name: type === "expense" ? "Groceries" : "Salary", type });
