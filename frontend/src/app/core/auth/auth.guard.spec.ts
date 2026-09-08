@@ -7,8 +7,9 @@ import { TestBed } from "@angular/core/testing";
 import { provideRouter, Router, UrlTree } from "@angular/router";
 import { firstValueFrom, Observable } from "rxjs";
 
-import { authGuard } from "./auth.guard";
+import { authGuard, pendingFormGuard } from "./auth.guard";
 import { AuthService } from "./auth.service";
+import { PendingFormService } from "../pending-form.service";
 
 describe("authGuard", () => {
   it("redirects unauthenticated navigation to login", async () => {
@@ -38,5 +39,13 @@ describe("authGuard", () => {
       router.createUrlTree(["/login"]).toString(),
     );
     http.verify();
+  });
+  it("blocks route transitions while a form operation is pending", () => {
+    TestBed.configureTestingModule({ providers: [PendingFormService, provideRouter([])] });
+    const pending = TestBed.inject(PendingFormService);
+    pending.setPending(true);
+    expect(TestBed.runInInjectionContext(() => pendingFormGuard({} as never, {} as never, {} as never, {} as never))).toBe(false);
+    pending.setPending(false);
+    expect(TestBed.runInInjectionContext(() => pendingFormGuard({} as never, {} as never, {} as never, {} as never))).toBe(true);
   });
 });

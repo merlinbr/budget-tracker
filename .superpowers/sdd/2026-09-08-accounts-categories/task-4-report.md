@@ -71,3 +71,14 @@ Final amended verification:
 - `npm test -- --watch=false --include=src/app/features/accounts/accounts.page.spec.ts --include=src/app/features/categories/categories.page.spec.ts --include=src/app/features/login/login.page.spec.ts --include=src/app/shared/utilities/money.spec.ts` — passed: 4 files, 13 tests.
 - `npm run build -- --configuration development` — passed.
 - Real-page desktop/390px workflow remains unrun for the exact seeded-authenticated-backend gate stated above; no browser acceptance is claimed.
+
+## Route guard correction
+
+- Removed the ineffective `click.capture` shell workaround and added the real `pendingFormGuard` `CanDeactivateFn` to dashboard/accounts/categories child routes. RouterLink navigation now cannot bypass pending-operation protection.
+- Added focused guard regression coverage for pending and idle transitions.
+
+Final verification:
+
+- `npm test -- --watch=false --include=src/app/core/auth/auth.guard.spec.ts --include=src/app/features/accounts/accounts.page.spec.ts --include=src/app/features/categories/categories.page.spec.ts --include=src/app/features/login/login.page.spec.ts --include=src/app/shared/utilities/money.spec.ts` — passed: 5 files, 15 tests.
+- `npm run build -- --configuration development` — passed.
+- No real-browser verification is claimed; controller must run the seeded disposable-backend desktop/390px workflow.

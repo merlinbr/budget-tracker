@@ -1,8 +1,9 @@
 import { inject } from "@angular/core";
-import { CanActivateFn, Router } from "@angular/router";
+import { CanActivateFn, CanDeactivateFn, Router } from "@angular/router";
 import { catchError, map, of } from "rxjs";
 
 import { AuthService } from "./auth.service";
+import { PendingFormService } from "../pending-form.service";
 
 export const authGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
@@ -25,3 +26,5 @@ export const anonymousGuard: CanActivateFn = () => {
     catchError(() => of(true)),
   );
 };
+export const pendingFormGuard: CanDeactivateFn<unknown> = () =>
+  !inject(PendingFormService).pending();
