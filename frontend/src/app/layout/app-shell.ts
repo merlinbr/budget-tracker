@@ -1,14 +1,14 @@
 import { HttpErrorResponse } from "@angular/common/http";
 import { Component, inject, signal } from "@angular/core";
-import { Router } from "@angular/router";
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from "@angular/router";
 
 import { AuthService } from "../core/auth/auth.service";
-
 @Component({
   selector: "app-shell",
   standalone: true,
+  imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
-    @if (auth.authState(); as state) {
+    @if (auth.authState()) {
       <main class="dashboard" aria-labelledby="page-title">
         <header class="dashboard-header">
           <div>
@@ -19,24 +19,15 @@ import { AuthService } from "../core/auth/auth.service";
             {{ isLoggingOut() ? "Signing out…" : "Sign out" }}
           </button>
         </header>
-
-        <section class="identity-card" aria-labelledby="identity-title">
-          <h2 id="identity-title">Welcome, {{ state.user.displayName }}</h2>
-          <dl>
-            <div>
-              <dt>Username</dt>
-              <dd>{{ state.user.username }}</dd>
-            </div>
-            <div>
-              <dt>Household</dt>
-              <dd>{{ state.household.name }}</dd>
-            </div>
-          </dl>
-        </section>
-
+        <nav aria-label="Primary navigation">
+          <a routerLink="/dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" ariaCurrentWhenActive="page">Dashboard</a>
+          <a routerLink="/accounts" routerLinkActive="active" ariaCurrentWhenActive="page">Accounts</a>
+          <a routerLink="/categories" routerLinkActive="active" ariaCurrentWhenActive="page">Categories</a>
+        </nav>
         @if (logoutError(); as errorMessage) {
           <p class="message error" role="alert">{{ errorMessage }}</p>
         }
+        <router-outlet />
       </main>
     }
   `,
@@ -53,7 +44,7 @@ import { AuthService } from "../core/auth/auth.service";
       justify-content: space-between;
       gap: 1rem;
       max-width: 52rem;
-      margin: 0 auto 2rem;
+      margin: 0 auto 1rem;
     }
     .eyebrow {
       margin: 0;
@@ -76,22 +67,28 @@ import { AuthService } from "../core/auth/auth.service";
       font-weight: 700;
     }
     button:disabled { cursor: wait; opacity: 0.65; }
-    button:focus-visible { outline: 3px solid #f0a500; outline-offset: 2px; }
-    .identity-card {
+    button:focus-visible, a:focus-visible { outline: 3px solid #f0a500; outline-offset: 2px; }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
       max-width: 52rem;
-      margin: 0 auto;
-      padding: clamp(1.25rem, 4vw, 2rem);
-      border: 1px solid #d7deeb;
-      border-radius: 1rem;
-      background: #fff;
+      margin: 0 auto 1.5rem;
     }
-    h2 { margin-top: 0; }
-    dl { margin: 0; }
-    dl > div { padding: 0.75rem 0; border-top: 1px solid #e5e9f1; }
-    dt { color: #52617a; font-size: 0.9rem; }
-    dd { margin: 0.25rem 0 0; font-weight: 700; }
-    .message { max-width: 52rem; margin: 1rem auto 0; padding: 0.75rem; border-radius: 0.375rem; }
+    nav a {
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.375rem;
+      color: #1b4d8f;
+      font-weight: 700;
+    }
+    nav a.active { background: #e6eefb; }
+    .message { max-width: 52rem; margin: 1rem auto; padding: 0.75rem; border-radius: 0.375rem; }
     .error { background: #fff0f0; color: #7c1717; }
+    @media (max-width: 30rem) {
+      .dashboard-header { align-items: stretch; flex-direction: column; }
+      .dashboard-header button { width: 100%; }
+      nav a { flex: 1 1 30%; text-align: center; }
+    }
   `,
 })
 export class AppShellComponent {

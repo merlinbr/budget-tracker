@@ -1,34 +1,15 @@
 import { HttpErrorResponse } from "@angular/common/http";
 import { Component, inject, signal } from "@angular/core";
 import {
-  AbstractControl,
   FormBuilder,
   ReactiveFormsModule,
-  ValidationErrors,
-  ValidatorFn,
   Validators,
 } from "@angular/forms";
 import { Router } from "@angular/router";
 
 import { AuthService } from "../../core/auth/auth.service";
+import { codePointLengthValidator } from "../../shared/utilities/validators";
 
-function codePointLengthValidator(
-  minimum: number | undefined,
-  maximum: number,
-  normalize: (value: string) => string = (value) => value,
-): ValidatorFn {
-  return (control: AbstractControl): ValidationErrors | null => {
-    const rawValue = typeof control.value === "string" ? control.value : "";
-    const actualLength = Array.from(normalize(rawValue)).length;
-    if (minimum !== undefined && actualLength < minimum) {
-      return { minlength: { requiredLength: minimum, actualLength } };
-    }
-    if (actualLength > maximum) {
-      return { maxlength: { requiredLength: maximum, actualLength } };
-    }
-    return null;
-  };
-}
 
 @Component({
   selector: "app-login-page",
