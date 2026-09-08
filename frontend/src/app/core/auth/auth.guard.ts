@@ -26,5 +26,5 @@ export const anonymousGuard: CanActivateFn = () => {
     catchError(() => of(true)),
   );
 };
-export const pendingFormGuard: CanDeactivateFn<unknown> = () =>
-  !inject(PendingFormService).pending();
+export const pendingFormGuard: CanDeactivateFn<unknown> = (_, __, ___, nextState) =>
+  !inject(PendingFormService).pending() || nextState.url === "/login";

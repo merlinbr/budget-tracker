@@ -81,6 +81,9 @@ def create_category(
                 {"name": "Choose a different name."},
             ) from None
         raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(category)
     return category_response(category)
 
@@ -107,6 +110,9 @@ def update_category(
                 "A category with this type and name already exists.",
                 {"name": "Choose a different name."},
             ) from None
+        raise
+    except Exception:
+        db.rollback()
         raise
     db.refresh(category)
     return category_response(category)

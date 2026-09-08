@@ -188,7 +188,7 @@ def _run(command: str) -> int:
         return 1
     except IntegrityError:
         db.rollback()
-        print("Error: The requested identity already exists or conflicts with existing data.", file=sys.stderr)
+        print("Error: The requested operation conflicts with existing data.", file=sys.stderr)
         return 1
     finally:
         db.close()

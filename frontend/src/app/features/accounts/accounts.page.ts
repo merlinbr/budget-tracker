@@ -60,7 +60,7 @@ function signedMoneyValidator(control: AbstractControl): ValidationErrors | null
           <div class="field"><label for="account-name">Name</label><input id="account-name" type="text" formControlName="name" aria-describedby="account-name-error" [attr.aria-invalid]="fieldError('name') ? 'true' : null" /><p id="account-name-error" class="field-error" aria-live="polite">{{ fieldError("name") }}</p></div>
           <div class="field"><label for="account-type">Type</label><select id="account-type" formControlName="type" aria-describedby="account-type-error"><option value="checking">Checking</option><option value="savings">Savings</option><option value="credit_card">Credit card</option><option value="cash">Cash</option><option value="other">Other</option></select><p id="account-type-error" class="field-error" aria-live="polite">{{ fieldError("type") }}</p></div>
           <div class="field"><label for="initial-balance">Initial balance (EUR)</label><input id="initial-balance" type="text" inputmode="decimal" formControlName="initialBalance" aria-describedby="initial-balance-hint initial-balance-error" [attr.aria-invalid]="form.controls.initialBalance.invalid && form.controls.initialBalance.touched" /><p id="initial-balance-hint">Use up to 14 whole digits and two decimals, comma or dot, no grouping. A leading minus means money owed.</p><p id="initial-balance-error" class="field-error" aria-live="polite">{{ initialBalanceError() }}</p></div>
-          @if (balanceChanged()) { <div class="warning"><p>Changing the initial balance changes the account's starting money.</p><label><input type="checkbox" formControlName="acknowledgeBalanceChange" /> I understand this balance change</label><p class="field-error" aria-live="polite">{{ fieldError("acknowledgeBalanceChange") }}</p></div> }
+          @if (balanceChanged()) { <div class="warning"><p id="balance-change-warning">Changing the initial balance changes this account's current balance and the baseline for its history.</p><label for="acknowledge-balance-change">I understand this balance change</label><input id="acknowledge-balance-change" type="checkbox" formControlName="acknowledgeBalanceChange" aria-describedby="balance-change-warning acknowledge-balance-change-error" [attr.aria-invalid]="form.controls.acknowledgeBalanceChange.hasError('required') ? 'true' : null" /><p id="acknowledge-balance-change-error" class="field-error" aria-live="polite">{{ fieldError("acknowledgeBalanceChange") }}</p></div> }
           <button type="submit" [disabled]="isSubmitting()">{{ isSubmitting() ? "Saving…" : "Save account" }}</button><button type="button" (click)="cancelForm()" [disabled]="isSubmitting()">Cancel</button>
         </form>
       }
@@ -95,6 +95,7 @@ export class AccountsPage {
   readonly archiveTarget = signal<Account | null>(null);
   readonly archivePending = signal(false);
   private listRequest = 0;
+  private detailRequest = 0;
   private archiveTrigger: HTMLButtonElement | null = null;
 
   constructor() {
@@ -122,17 +123,17 @@ export class AccountsPage {
   toggleArchived(event: Event): void { this.includeArchived.set((event.target as HTMLInputElement).checked); this.loadList(); }
 
   startAdd(): void {
-    this.editingAccount.set(null); this.formOpen.set(true); this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.form.reset({ name: "", type: "checking", initialBalance: "0.00", acknowledgeBalanceChange: false });
+    ++this.detailRequest; this.editingAccount.set(null); this.formOpen.set(true); this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.form.reset({ name: "", type: "checking", initialBalance: "0.00", acknowledgeBalanceChange: false });
   }
 
   startEdit(account: Account): void {
-    this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.accountsService.get(account.id).subscribe({
-      next: (detail) => { if (detail.isArchived) { this.formOpen.set(false); this.editingAccount.set(null); this.saveError.set("That account is archived and read-only."); this.loadList(); return; } this.editingAccount.set(detail); this.formOpen.set(true); this.form.reset({ name: detail.name, type: detail.type, initialBalance: signedMoneyInput(detail.initialBalance), acknowledgeBalanceChange: false }); },
-      error: (error: unknown) => { this.saveError.set(this.errorMessage(error, "That account is no longer available.")); this.loadList(); },
+    this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); const request = ++this.detailRequest; this.accountsService.get(account.id).subscribe({
+      next: (detail) => { if (request !== this.detailRequest) return; if (detail.isArchived) { this.formOpen.set(false); this.editingAccount.set(null); this.saveError.set("That account is archived and read-only."); this.loadList(); return; } this.editingAccount.set(detail); this.formOpen.set(true); this.form.reset({ name: detail.name, type: detail.type, initialBalance: signedMoneyInput(detail.initialBalance), acknowledgeBalanceChange: false }); },
+      error: (error: unknown) => { if (request !== this.detailRequest) return; this.saveError.set(this.errorMessage(error, "That account is no longer available.")); this.loadList(); },
     });
   }
 
-  cancelForm(): void { if (!this.isSubmitting()) { this.formOpen.set(false); this.editingAccount.set(null); } }
+  cancelForm(): void { if (!this.isSubmitting()) { ++this.detailRequest; this.formOpen.set(false); this.editingAccount.set(null); } }
 
   save(): void {
     this.saveError.set(null); this.fieldErrors.set({}); this.form.markAllAsTouched();

@@ -48,7 +48,7 @@ test.describe("accounts and categories", () => {
       await page.getByLabel("Name", { exact: true }).fill(updatedAccountName);
       await page.getByLabel("Type", { exact: true }).selectOption("checking");
       await page.getByLabel("Initial balance (EUR)", { exact: true }).fill("-90.00");
-      await expect(page.getByText("Changing the initial balance changes the account's starting money.", { exact: true })).toBeVisible();
+      await expect(page.getByText("Changing the initial balance changes this account's current balance and the baseline for its history.", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Save account", exact: true }).click();
       await expect(page.getByText("Please acknowledge the balance change.", { exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Edit account", exact: true })).toBeVisible();

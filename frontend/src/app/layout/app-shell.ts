@@ -99,12 +99,6 @@ export class AppShellComponent {
   readonly logoutError = signal<string | null>(null);
   readonly pendingForms = inject(PendingFormService);
 
-  guardNavigation(event: Event): void {
-    if (this.pendingForms.pending()) {
-      event.preventDefault();
-      this.logoutError.set("Finish saving the current form before navigating away.");
-    }
-  }
 
   logout(): void {
     if (this.pendingForms.pending()) {

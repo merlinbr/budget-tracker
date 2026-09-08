@@ -82,6 +82,9 @@ def create_account(
                 {"name": "Choose a different name."},
             ) from None
         raise
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(account)
     return account_response(account)
 
@@ -110,6 +113,9 @@ def update_account(
                 "An account with this name already exists.",
                 {"name": "Choose a different name."},
             ) from None
+        raise
+    except Exception:
+        db.rollback()
         raise
     db.refresh(account)
     return account_response(account)

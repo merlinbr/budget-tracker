@@ -40,12 +40,13 @@ describe("authGuard", () => {
     );
     http.verify();
   });
-  it("blocks route transitions while a form operation is pending", () => {
+  it("allows auth redirects to login while a form operation is pending", () => {
     TestBed.configureTestingModule({ providers: [PendingFormService, provideRouter([])] });
     const pending = TestBed.inject(PendingFormService);
     pending.setPending(true);
-    expect(TestBed.runInInjectionContext(() => pendingFormGuard({} as never, {} as never, {} as never, {} as never))).toBe(false);
+    expect(TestBed.runInInjectionContext(() => pendingFormGuard({} as never, {} as never, {} as never, { url: "/accounts" } as never))).toBe(false);
+    expect(TestBed.runInInjectionContext(() => pendingFormGuard({} as never, {} as never, {} as never, { url: "/login" } as never))).toBe(true);
     pending.setPending(false);
-    expect(TestBed.runInInjectionContext(() => pendingFormGuard({} as never, {} as never, {} as never, {} as never))).toBe(true);
+    expect(TestBed.runInInjectionContext(() => pendingFormGuard({} as never, {} as never, {} as never, { url: "/accounts" } as never))).toBe(true);
   });
 });
