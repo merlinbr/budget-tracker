@@ -12,7 +12,7 @@ import { CategoriesService } from "./categories.service";
   imports: [ReactiveFormsModule],
   template: `
     <section class="page" aria-labelledby="categories-title">
-      <div class="page-heading"><div><p class="eyebrow">Labels for transactions</p><h2 id="categories-title">Categories</h2></div><button type="button" (click)="startAdd()" [disabled]="isSubmitting() || archivePending()">Add category</button></div>
+      <div class="page-heading"><div><p class="eyebrow">Labels for transactions</p><h2 id="categories-title">Categories</h2></div><button #addCategoryButton type="button" (click)="startAdd()" [disabled]="isSubmitting() || archivePending()">Add category</button></div>
       <label class="toggle"><input type="checkbox" [checked]="includeArchived()" (change)="toggleArchived($event)" [disabled]="isLoading() || isSubmitting()" /> Show archived categories</label>
       @if (isLoading()) { <p role="status" aria-live="polite">Loading categories…</p> }
       @if (listError(); as error) { <p class="message error" role="alert">{{ error }} <button type="button" (click)="loadList()">Retry</button></p> }
@@ -35,6 +35,7 @@ export class CategoriesPage {
   readonly categoriesService = inject(CategoriesService);
   private readonly formBuilder = inject(FormBuilder);
   private readonly archiveConfirmation = viewChild<ElementRef<HTMLElement>>("archiveConfirmation");
+  private readonly addButton = viewChild<ElementRef<HTMLButtonElement>>("addCategoryButton");
   readonly form = this.formBuilder.nonNullable.group({ name: ["", [Validators.required, codePointLengthValidator(1, 100, (value) => value.trim())]], type: ["expense" as CategoryType, [Validators.required]] });
   readonly categoryTypes: CategoryType[] = ["expense", "income"];
   readonly categories = signal<Category[]>([]);
@@ -61,7 +62,7 @@ export class CategoriesPage {
   save(): void { this.saveError.set(null); this.fieldErrors.set({}); this.form.markAllAsTouched(); if (this.isSubmitting() || this.form.invalid) return; const raw = this.form.getRawValue(); this.isSubmitting.set(true); const editing = this.editingCategory(); const write = editing ? this.categoriesService.update(editing.id, { name: raw.name.trim() }) : this.categoriesService.create({ name: raw.name.trim(), type: raw.type }); write.subscribe({ next: () => { this.isSubmitting.set(false); this.formOpen.set(false); this.editingCategory.set(null); this.loadList("Category saved, but the list could not be refreshed."); }, error: (error: unknown) => { this.isSubmitting.set(false); this.applyServerError(error, "Could not save category."); } }); }
   beginArchive(category: Category): void { this.archiveTrigger = (document.activeElement as HTMLButtonElement) ?? null; this.archiveTarget.set(category); queueMicrotask(() => this.archiveConfirmation()?.nativeElement.focus()); }
   cancelArchive(): void { this.archiveTarget.set(null); queueMicrotask(() => this.archiveTrigger?.focus()); }
-  confirmArchive(): void { const target = this.archiveTarget(); if (!target || this.archivePending()) return; this.archivePending.set(true); this.categoriesService.archive(target.id).subscribe({ next: () => { this.archivePending.set(false); this.archiveTarget.set(null); this.loadList(); queueMicrotask(() => this.archiveTrigger?.focus()); }, error: (error: unknown) => { this.archivePending.set(false); this.saveError.set(this.errorMessage(error, "Could not archive category.")); } }); }
+  confirmArchive(): void { const target = this.archiveTarget(); if (!target || this.archivePending()) return; this.archivePending.set(true); this.categoriesService.archive(target.id).subscribe({ next: () => { this.archivePending.set(false); this.archiveTarget.set(null); this.loadList(); queueMicrotask(() => this.addButton()?.nativeElement.focus()); }, error: (error: unknown) => { this.archivePending.set(false); this.saveError.set(this.errorMessage(error, "Could not archive category.")); } }); }
   fieldError(field: string): string { return this.fieldErrors()[field] ?? (this.form.get(field)?.touched && this.form.get(field)?.hasError("required") ? "This field is required." : ""); }
   private applyServerError(error: unknown, fallback: string): void { if (error instanceof HttpErrorResponse && error.error?.error?.fields) this.fieldErrors.set(error.error.error.fields); this.saveError.set(this.errorMessage(error, fallback)); }
   private errorMessage(error: unknown, fallback: string): string { if (error instanceof HttpErrorResponse && error.status === 0) return "Could not connect. Check your connection and try again."; return error instanceof HttpErrorResponse && typeof error.error?.error?.message === "string" ? error.error.error.message : fallback; }

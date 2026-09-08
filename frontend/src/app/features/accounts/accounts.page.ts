@@ -27,7 +27,7 @@ function signedMoneyValidator(control: AbstractControl): ValidationErrors | null
     <section class="page" aria-labelledby="accounts-title">
       <div class="page-heading">
         <div><p class="eyebrow">Money sources</p><h2 id="accounts-title">Accounts</h2></div>
-        <button type="button" (click)="startAdd()" [disabled]="isSubmitting() || archivePending()">Add account</button>
+        <button #addAccountButton type="button" (click)="startAdd()" [disabled]="isSubmitting() || archivePending()">Add account</button>
       </div>
       <label class="toggle"><input type="checkbox" [checked]="includeArchived()" (change)="toggleArchived($event)" [disabled]="isLoading() || isSubmitting()" /> Show archived accounts</label>
       @if (isLoading()) { <p role="status" aria-live="polite">Loading accounts…</p> }
@@ -81,6 +81,7 @@ export class AccountsPage {
   readonly accounts = signal<Account[]>([]);
   readonly includeArchived = signal(false);
   readonly isLoading = signal(false);
+  private readonly addButton = viewChild<ElementRef<HTMLButtonElement>>("addAccountButton");
   readonly listError = signal<string | null>(null);
   readonly isSubmitting = signal(false);
   readonly saveError = signal<string | null>(null);
@@ -150,7 +151,7 @@ export class AccountsPage {
   confirmArchive(): void {
     const target = this.archiveTarget(); if (!target || this.archivePending()) return;
     this.archivePending.set(true); this.accountsService.archive(target.id).subscribe({
-      next: () => { this.archivePending.set(false); this.archiveTarget.set(null); this.loadList(); queueMicrotask(() => this.archiveTrigger?.focus()); },
+      next: () => { this.archivePending.set(false); this.archiveTarget.set(null); this.loadList(); queueMicrotask(() => this.addButton()?.nativeElement.focus()); },
       error: (error: unknown) => { this.archivePending.set(false); this.saveError.set(this.errorMessage(error, "Could not archive account.")); },
     });
   }
