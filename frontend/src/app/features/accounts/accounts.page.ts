@@ -31,6 +31,7 @@ function signedMoneyValidator(control: AbstractControl): ValidationErrors | null
         <button #addAccountButton type="button" (click)="startAdd()" [disabled]="isSubmitting() || archivePending()">Add account</button>
       </div>
       <label class="toggle"><input type="checkbox" [checked]="includeArchived()" (change)="toggleArchived($event)" [disabled]="isLoading() || isSubmitting()" /> Show archived accounts</label>
+      @if (isLoading()) { <p role="status" aria-live="polite">Loading accounts…</p> }
       @if (listError(); as error) { <p class="message error" role="alert">{{ error }} <button type="button" (click)="loadList()">Retry</button></p> }
       @if (saveError(); as error) { <p class="message error" role="alert">{{ error }}</p> }
       @if (announcement(); as message) { <p class="message" role="status" aria-live="polite">{{ message }}</p> }
@@ -126,7 +127,7 @@ export class AccountsPage {
 
   startEdit(account: Account): void {
     this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.accountsService.get(account.id).subscribe({
-      next: (detail) => { if (detail.isArchived) { this.formOpen.set(false); this.editingAccount.set(null); this.listError.set("That account is archived and read-only."); this.loadList(); return; } this.editingAccount.set(detail); this.formOpen.set(true); this.form.reset({ name: detail.name, type: detail.type, initialBalance: signedMoneyInput(detail.initialBalance), acknowledgeBalanceChange: false }); },
+      next: (detail) => { if (detail.isArchived) { this.formOpen.set(false); this.editingAccount.set(null); this.saveError.set("That account is archived and read-only."); this.loadList(); return; } this.editingAccount.set(detail); this.formOpen.set(true); this.form.reset({ name: detail.name, type: detail.type, initialBalance: signedMoneyInput(detail.initialBalance), acknowledgeBalanceChange: false }); },
       error: (error: unknown) => { this.saveError.set(this.errorMessage(error, "That account is no longer available.")); this.loadList(); },
     });
   }
@@ -136,7 +137,7 @@ export class AccountsPage {
   save(): void {
     this.saveError.set(null); this.fieldErrors.set({}); this.form.markAllAsTouched();
     const raw = this.form.getRawValue(); const cents = parseSignedMoney(raw.initialBalance);
-    if (this.isSubmitting() || this.form.invalid || cents === null) return;
+    if (this.isSubmitting() || this.archivePending() || this.form.invalid || cents === null) return;
     const original = this.editingAccount();
     if (original && cents !== original.initialBalance && !raw.acknowledgeBalanceChange) { this.form.controls.acknowledgeBalanceChange.setErrors({ required: true }); return; }
     this.isSubmitting.set(true);
@@ -152,7 +153,7 @@ export class AccountsPage {
   beginArchive(account: Account): void { this.archiveTrigger = (document.activeElement as HTMLButtonElement) ?? null; this.archiveTarget.set(account); queueMicrotask(() => this.archiveConfirmation()?.nativeElement.focus()); }
   cancelArchive(): void { this.archiveTarget.set(null); queueMicrotask(() => this.archiveTrigger?.focus()); }
   confirmArchive(): void {
-    const target = this.archiveTarget(); if (!target || this.archivePending()) return;
+    const target = this.archiveTarget(); if (!target || this.archivePending() || this.isSubmitting()) return;
     this.archivePending.set(true); this.pendingForms.setPending(true); this.accountsService.archive(target.id).subscribe({
       next: () => { this.pendingForms.setPending(false); this.archivePending.set(false); this.archiveTarget.set(null); if (this.editingAccount()?.id === target.id) { this.formOpen.set(false); this.editingAccount.set(null); } this.announcement.set("Account archived."); this.loadList(); queueMicrotask(() => this.addButton()?.nativeElement.focus()); },
       error: (error: unknown) => { this.pendingForms.setPending(false); this.archivePending.set(false); this.saveError.set(this.errorMessage(error, "Could not archive account.")); if (error instanceof HttpErrorResponse && error.status === 404) this.loadList(); },

@@ -59,3 +59,15 @@ Additional verification after the review fixes:
 - No real-page desktop/390px browser run was performed: this worker did not have a disposable authenticated backend/database seeded for the required workflow. The controller must run Task 5 with a disposable backend and seeded session, then record desktop and 390px keyboard/paste/archive evidence.
 
 Final code/report commits: `84c450f`, `65ea593`, plus this review-fix commit.
+
+## Final review fixes
+
+- Router link navigation now uses capture-phase guarding; loading status is restored for account/category GETs.
+- Save/archive operations are mutually guarded per page so the shared pending gate cannot clear while another operation is active.
+- Category save has one outer accessible error alert, and archived-detail explanations use that persistent alert rather than a list error cleared by refresh.
+
+Final amended verification:
+
+- `npm test -- --watch=false --include=src/app/features/accounts/accounts.page.spec.ts --include=src/app/features/categories/categories.page.spec.ts --include=src/app/features/login/login.page.spec.ts --include=src/app/shared/utilities/money.spec.ts` — passed: 4 files, 13 tests.
+- `npm run build -- --configuration development` — passed.
+- Real-page desktop/390px workflow remains unrun for the exact seeded-authenticated-backend gate stated above; no browser acceptance is claimed.

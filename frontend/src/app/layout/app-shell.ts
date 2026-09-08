@@ -21,9 +21,9 @@ import { PendingFormService } from "../core/pending-form.service";
           </button>
         </header>
         <nav aria-label="Primary navigation">
-          <a routerLink="/dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" ariaCurrentWhenActive="page" (click)="guardNavigation($event)">Dashboard</a>
-          <a routerLink="/accounts" routerLinkActive="active" ariaCurrentWhenActive="page" (click)="guardNavigation($event)">Accounts</a>
-          <a routerLink="/categories" routerLinkActive="active" ariaCurrentWhenActive="page" (click)="guardNavigation($event)">Categories</a>
+          <a routerLink="/dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" ariaCurrentWhenActive="page" (click.capture)="guardNavigation($event)">Dashboard</a>
+          <a routerLink="/accounts" routerLinkActive="active" ariaCurrentWhenActive="page" (click.capture)="guardNavigation($event)">Accounts</a>
+          <a routerLink="/categories" routerLinkActive="active" ariaCurrentWhenActive="page" (click.capture)="guardNavigation($event)">Categories</a>
         </nav>
         @if (logoutError(); as errorMessage) {
           <p class="message error" role="alert">{{ errorMessage }}</p>
