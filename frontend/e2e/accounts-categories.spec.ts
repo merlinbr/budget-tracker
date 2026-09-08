@@ -94,7 +94,7 @@ test.describe("accounts and categories", () => {
       const categoryCard = (sectionName: string, name: string) => {
         const section = categorySection(sectionName);
         return section.getByRole("listitem").filter({
-          has: section.getByText(name, { exact: true }),
+          has: page.getByText(name, { exact: true }),
         });
       };
       const expenseCategories = "Expense Categories";
@@ -129,6 +129,7 @@ test.describe("accounts and categories", () => {
       await page.getByRole("button", { name: `Archive category ${renamedExpenseName}`, exact: true }).click();
       await page.getByRole("button", { name: "Confirm archive", exact: true }).click();
       await expect(categoryCard(expenseCategories, renamedExpenseName)).toHaveCount(0);
+      await expect(categoryCard(incomeCategories, incomeName)).toBeVisible();
       await page.getByLabel("Show archived categories", { exact: true }).check();
       const archivedCategoryCard = categoryCard(expenseCategories, renamedExpenseName);
       await expect(archivedCategoryCard).toBeVisible();
@@ -143,6 +144,7 @@ test.describe("accounts and categories", () => {
       await expect(reloadedArchivedCategoryCard).toContainText("Archived (read-only)");
       await expect(reloadedArchivedCategoryCard.getByRole("button", { name: `Edit category ${renamedExpenseName}`, exact: true })).toHaveCount(0);
       await expect(reloadedArchivedCategoryCard.getByRole("button", { name: `Archive category ${renamedExpenseName}`, exact: true })).toHaveCount(0);
+      await expect(categoryCard(incomeCategories, incomeName)).toBeVisible();
 
       await page.getByRole("button", { name: "Sign out", exact: true }).click();
       await expect(page).toHaveURL(/\/login$/);
