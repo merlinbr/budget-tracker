@@ -12,6 +12,7 @@ Implemented the permanent real-backend browser lifecycle. This pass intentionall
   - Uses a per-test `crypto.randomUUID()` suffix for account/category names.
   - Exercises real login, account creation with exact `-84,72` cents, reload, account type/name editing, warned `-90.00` balance editing and acknowledgement, keyboard-only invalid account submission, category expense/income creation, category rename with immutable type, archive cancel/confirm, active/archive visibility, refresh, logout, and protected deep links.
   - Uses accessible label/role selectors and does not use fixed record IDs or happy-path backend mocks.
+  - Reviewer fix round: category cards are scoped to the accessible `Expense Categories` and `Income Categories` regions, so expense creation/rename and income creation assertions verify their actual groups. After reload with archived rows shown, category and account cards assert both Edit and Archive controls are absent.
 - Existing `accounts.page.spec.ts` and `categories.page.spec.ts` continue to cover failed-save value/error preservation; no duplicate browser fault route was added.
 - `.superpowers/sdd/2026-09-08-accounts-categories/task-5-report.md`
 

@@ -77,58 +77,72 @@ test.describe("accounts and categories", () => {
       await page.getByLabel("Show archived accounts", { exact: true }).check();
       await expect(accountCard(updatedAccountName)).toBeVisible();
       await expect(accountCard(updatedAccountName)).toContainText("Archived (read-only)");
-      await expect(page.getByRole("button", { name: `Edit account ${updatedAccountName}`, exact: true })).toHaveCount(0);
+      await expect(accountCard(updatedAccountName).getByRole("button", { name: `Edit account ${updatedAccountName}`, exact: true })).toHaveCount(0);
       await page.reload();
       await expect(page.getByLabel("Show archived accounts", { exact: true })).not.toBeChecked();
       await expect(accountCard(updatedAccountName)).toHaveCount(0);
       await page.getByLabel("Show archived accounts", { exact: true }).check();
-      await expect(accountCard(updatedAccountName)).toContainText("Archived (read-only)");
+      const archivedAccountCard = accountCard(updatedAccountName);
+      await expect(archivedAccountCard).toContainText("Archived (read-only)");
+      await expect(archivedAccountCard.getByRole("button", { name: `Edit account ${updatedAccountName}`, exact: true })).toHaveCount(0);
+      await expect(archivedAccountCard.getByRole("button", { name: `Archive account ${updatedAccountName}`, exact: true })).toHaveCount(0);
 
       await page.getByRole("link", { name: "Categories", exact: true }).click();
       await expect(page).toHaveURL(/\/categories$/);
-      const categoryCard = (name: string) =>
-        page.getByRole("listitem").filter({
-          has: page.getByText(name, { exact: true }),
+      const categorySection = (name: string) =>
+        page.getByRole("region", { name, exact: true });
+      const categoryCard = (sectionName: string, name: string) => {
+        const section = categorySection(sectionName);
+        return section.getByRole("listitem").filter({
+          has: section.getByText(name, { exact: true }),
         });
+      };
+      const expenseCategories = "Expense Categories";
+      const incomeCategories = "Income Categories";
 
       await page.getByRole("button", { name: "Add category", exact: true }).click();
       await page.getByLabel("Name", { exact: true }).fill(expenseName);
       await page.getByLabel("Type", { exact: true }).selectOption("expense");
       await page.getByLabel("Name", { exact: true }).press("Enter");
-      await expect(categoryCard(expenseName)).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Expense Categories", exact: true })).toBeVisible();
+      await expect(categoryCard(expenseCategories, expenseName)).toBeVisible();
+      await expect(categorySection(expenseCategories)).toBeVisible();
 
       await page.getByRole("button", { name: "Add category", exact: true }).click();
       await page.getByLabel("Name", { exact: true }).fill(incomeName);
       await page.getByLabel("Type", { exact: true }).selectOption("income");
       await page.getByRole("button", { name: "Save category", exact: true }).click();
-      await expect(categoryCard(incomeName)).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Income Categories", exact: true })).toBeVisible();
+      await expect(categoryCard(incomeCategories, incomeName)).toBeVisible();
+      await expect(categorySection(incomeCategories)).toBeVisible();
 
       await page.getByRole("button", { name: `Edit category ${expenseName}`, exact: true }).click();
       await expect(page.getByRole("heading", { name: "Edit category", exact: true })).toBeVisible();
       await expect(page.getByLabel("Type", { exact: true })).toHaveCount(0);
       await page.getByLabel("Name", { exact: true }).fill(renamedExpenseName);
       await page.getByRole("button", { name: "Save category", exact: true }).click();
-      await expect(categoryCard(renamedExpenseName)).toBeVisible();
-      await expect(categoryCard(expenseName)).toHaveCount(0);
+      await expect(categoryCard(expenseCategories, renamedExpenseName)).toBeVisible();
+      await expect(categoryCard(expenseCategories, expenseName)).toHaveCount(0);
 
       await page.getByRole("button", { name: `Archive category ${renamedExpenseName}`, exact: true }).click();
       await expect(page.getByRole("heading", { name: `Archive ${renamedExpenseName}?`, exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Cancel", exact: true }).click();
-      await expect(categoryCard(renamedExpenseName)).toBeVisible();
+      await expect(categoryCard(expenseCategories, renamedExpenseName)).toBeVisible();
       await page.getByRole("button", { name: `Archive category ${renamedExpenseName}`, exact: true }).click();
       await page.getByRole("button", { name: "Confirm archive", exact: true }).click();
-      await expect(categoryCard(renamedExpenseName)).toHaveCount(0);
+      await expect(categoryCard(expenseCategories, renamedExpenseName)).toHaveCount(0);
       await page.getByLabel("Show archived categories", { exact: true }).check();
-      await expect(categoryCard(renamedExpenseName)).toBeVisible();
-      await expect(categoryCard(renamedExpenseName)).toContainText("Archived (read-only)");
-      await expect(page.getByRole("button", { name: `Edit category ${renamedExpenseName}`, exact: true })).toHaveCount(0);
+      const archivedCategoryCard = categoryCard(expenseCategories, renamedExpenseName);
+      await expect(archivedCategoryCard).toBeVisible();
+      await expect(archivedCategoryCard).toContainText("Archived (read-only)");
+      await expect(archivedCategoryCard.getByRole("button", { name: `Edit category ${renamedExpenseName}`, exact: true })).toHaveCount(0);
+      await expect(archivedCategoryCard.getByRole("button", { name: `Archive category ${renamedExpenseName}`, exact: true })).toHaveCount(0);
       await page.reload();
       await expect(page.getByLabel("Show archived categories", { exact: true })).not.toBeChecked();
-      await expect(categoryCard(renamedExpenseName)).toHaveCount(0);
+      await expect(categoryCard(expenseCategories, renamedExpenseName)).toHaveCount(0);
       await page.getByLabel("Show archived categories", { exact: true }).check();
-      await expect(categoryCard(renamedExpenseName)).toContainText("Archived (read-only)");
+      const reloadedArchivedCategoryCard = categoryCard(expenseCategories, renamedExpenseName);
+      await expect(reloadedArchivedCategoryCard).toContainText("Archived (read-only)");
+      await expect(reloadedArchivedCategoryCard.getByRole("button", { name: `Edit category ${renamedExpenseName}`, exact: true })).toHaveCount(0);
+      await expect(reloadedArchivedCategoryCard.getByRole("button", { name: `Archive category ${renamedExpenseName}`, exact: true })).toHaveCount(0);
 
       await page.getByRole("button", { name: "Sign out", exact: true }).click();
       await expect(page).toHaveURL(/\/login$/);
@@ -139,3 +153,4 @@ test.describe("accounts and categories", () => {
     });
   }
 });
+
