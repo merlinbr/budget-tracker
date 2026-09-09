@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented the permanent real-backend browser lifecycle. This pass intentionally does not claim M2 completion or update M2 status documents.
+Implemented the permanent real-backend browser lifecycle. Controller integrated verification and final review fix reruns are complete; this report records the full M2 Task 5 evidence.
 
 ## Files
 
@@ -21,12 +21,25 @@ Implemented the permanent real-backend browser lifecycle. This pass intentionall
 
 - `cd frontend && npx playwright test e2e/accounts-categories.spec.ts --list`
   - Passed: 2 tests discovered (1280px and 390px lifecycle cases).
-- Full real-backend Playwright execution was not run in this implementation pass; the controller owns the integrated run after sibling changes settle.
+- `cd backend && python -m pytest`
+  - Passed: 55 tests.
+- `cd frontend && npm test -- --watch=false`
+  - Passed: 8 test files / 19 tests.
+- `cd frontend && npm run build -- --configuration development`
+  - Passed.
+- `cd frontend && npx playwright test`
+  - Passed: 6 real-backend browser tests at 1280×900 and 390×844.
 
-## Limitations and deferred gates
+## Controller acceptance evidence
 
-Full backend/frontend suites, the migration matrix, focused security review, and status-document updates await controller evidence. No migration database, `.env`, production data, M3 plan, or M3 handoff was changed. The existing Playwright config remains responsible for generated credentials, temporary database ownership, backend startup, and teardown.
+- Fresh disposable `0002_identity → 0003_accounts_categories` preserved identity/session rows and exact `-8472` cents.
+- Separate disposable `0003 → 0002 → 0003` preserved identity/session rows while removing/recreating financial tables; an empty database reached `0003_accounts_categories` head.
+- Real PTY bootstrap accepted all 17 exact default category pairs and declined with 0 category rows.
+- Focused M2 security review found no confirmed Critical, High, Medium, or Low vulnerabilities. Optional cache/CSP/HSTS/UUID/limiter hardening remains outside M2.
+- Disposable proof databases and browser-run artifacts were removed. No `.env`, production data, deployment, or M3 artifact changed.
+- Final review fixes: `042acac` repaired 401 navigation recovery, stale detail loads, failed-list empty states, warning accessibility, commit rollback, and CLI conflict wording; `14442f7` added visible pending-navigation status feedback.
+- Post-fix reruns: backend `55` passed; frontend `8` files / `19` tests passed; development build passed; real-backend Playwright `6` passed.
 
-## Commit
+## Commits
 
-Implementation commit: `37e77ed` (`test: add real backend accounts categories lifecycle`)
+Implementation and review-fix commits: `37e77ed`, `6a3b5e6`, `452436d`, `042acac`, `14442f7`. Report commits: `a4bf3d5`, `f0ab6f5`, plus the fix-round report updates.

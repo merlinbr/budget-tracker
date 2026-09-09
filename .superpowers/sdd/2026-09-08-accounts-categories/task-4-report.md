@@ -82,3 +82,9 @@ Final verification:
 - `npm test -- --watch=false --include=src/app/core/auth/auth.guard.spec.ts --include=src/app/features/accounts/accounts.page.spec.ts --include=src/app/features/categories/categories.page.spec.ts --include=src/app/features/login/login.page.spec.ts --include=src/app/shared/utilities/money.spec.ts` — passed: 5 files, 15 tests.
 - `npm run build -- --configuration development` — passed.
 - No real-browser verification is claimed; controller must run the seeded disposable-backend desktop/390px workflow.
+
+## Controller browser smoke
+
+- Disposable SQLite database was migrated to head and seeded with the existing E2E identity script; temporary backend and Angular dev servers were stopped and the database was removed afterward.
+- At 1280×900: login → dashboard → account creation with `credit_card` and `-84,72` → exact displayed amount → warned `-90.00` edit blocked until acknowledgement → acknowledged save → category creation → archive cancel preserved the row → archive confirmation removed it from the active list → Show archived displayed the retained read-only category.
+- At 390×844: account and category pages rendered with document/body width exactly 390px; keyboard Enter opened the category form and keyboard submission created `Phone Smoke`; no horizontal overflow observed.

@@ -1,6 +1,6 @@
 # Household Budget Tracker
 
-Private, self-hosted household budget tracker. Milestone 1 provides local authentication, household membership, and an authenticated identity landing page; financial features remain out of scope.
+Private, self-hosted household budget tracker. Milestones 1–2 provide local authentication, household membership, account/category management, exact-cent balances, and archive workflows; transactions and later financial features remain out of scope.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ python -m app.cli init-household
 uvicorn app.main:app --reload --port 8000
 ```
 
-The bootstrap command reads the household name, username, display name, and password confirmation interactively. Passwords are never command-line arguments. Add later members with `python -m app.cli create-user`; use `reset-password` and `cleanup-sessions` for administration.
+The bootstrap command reads the household name, username, display name, and password confirmation interactively. Passwords are never command-line arguments. `init-household` optionally creates the exact 17 default categories for a new household. Add later members with `python -m app.cli create-user`; use `reset-password` and `cleanup-sessions` for administration.
 
 In a second terminal:
 
@@ -61,13 +61,14 @@ The Playwright browser binary is a separate local install when needed:
 npx playwright install chromium
 ```
 
-Verified locally against disposable databases and Compose mounts:
+Verified locally against disposable databases and the real-backend browser harness:
 
-- Backend: `27` tests passed.
-- Angular: `5` test files / `9` tests passed; production build passed.
-- Alembic: disposable `upgrade → downgrade 0001_initial → upgrade` cycle passed; `0002_identity (head)` reported.
-- Playwright: `4` browser tests passed at phone width, including keyboard-only login, refresh restoration, logout, expired valid-session recovery, and teardown ownership preservation.
-- HTTPS Compose: CSRF `204`, login `200`, `/me` `200`, logout `204`; Secure/SameSite=Lax/Path=/ cookies; session cookie HttpOnly; backend had no published host port.
+- Backend: `55` tests passed.
+- Angular: `8` test files / `19` tests passed; development build passed.
+- Playwright: `6` browser tests passed at `1280×900` and `390×844`, including the real accounts/categories lifecycle, keyboard validation, archive/read-only behavior, logout, and protected deep-link denial.
+- Alembic: fresh `0002_identity → 0003_accounts_categories` preserved identity/session rows and exact `-8472` cents; a separate `0003 → 0002 → 0003` cycle preserved identity/session rows and removed/recreated financial tables; an empty database reached head.
+- Bootstrap CLI: disposable real PTY runs accepted all `17` exact default category pairs and declined with `0` category rows.
+- Focused M2 security review: no confirmed Critical/High/Medium/Low vulnerabilities.
 
 ## Administration
 
@@ -107,7 +108,7 @@ Install and trust the Caddy root certificate on a device before using a browser 
 
 ## Migrations
 
-The identity schema is Alembic revision `0002_identity`:
+The identity schema is Alembic revision `0002_identity`; accounts and categories are revision `0003_accounts_categories`:
 
 ```text
 cd backend
@@ -122,7 +123,18 @@ Use a separate disposable database for downgrade/upgrade checks. Do not downgrad
 - `GET /api/health` is public and non-sensitive.
 - `GET /api/auth/csrf` bootstraps the signed readable CSRF cookie.
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, and `POST /api/auth/change-password` implement cookie-backed authentication.
-- `/dashboard` displays only the authenticated user and household identity.
+- `/dashboard` displays the authenticated user and household identity.
+- `/accounts` and `/categories` provide guarded household-scoped account/category management with exact-cent balances, optional archive visibility, and read-only archived rows.
+- Account/category API queries and writes derive household ownership from the authenticated session; no household ID is accepted from clients.
 - Unknown `/api/*` paths return the shared JSON error envelope and never receive the Angular index document.
 
-Accounts, categories, transactions, budgets, dashboard calculations, settings UI, registration, email recovery, backups, and production network changes belong to later milestones.
+## Accounts and categories
+
+- Account initial balances are signed integer cents in `[-9007199254740991, 9007199254740991]`; input accepts up to 14 whole digits and two decimals with comma or dot separators and no grouping.
+- Names are trimmed, limited to 1–100 Unicode code points, and use case-sensitive exact uniqueness per household (categories per household and type). Archived names remain reserved.
+- Archive is a soft, idempotent action: active rows show by default, archived rows are revealed on demand and read-only, and there are no delete or unarchive endpoints.
+- Editing an account's initial balance warns that it changes the account's current balance and the baseline for its history and requires acknowledgement before saving.
+- The optional default-category prompt runs only during new `init-household`; existing households are never seeded retroactively.
+
+
+Transactions, budgets, dashboard calculations, settings UI, registration, email recovery, backups, and production network changes belong to later milestones.
