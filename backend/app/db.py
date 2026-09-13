@@ -24,6 +24,7 @@ def create_engine_for(settings: Settings) -> Engine:
         settings.database_url,
         connect_args={"check_same_thread": False},
         pool_pre_ping=True,
+        hide_parameters=True,
     )
     if settings.database_url.startswith("sqlite:"):
         event.listen(engine, "connect", configure_sqlite_connection)

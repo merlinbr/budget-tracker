@@ -1,21 +1,21 @@
-# Luna — Milestone 2 Accounts and Categories Handoff
+# Luna — Milestone 3 Transactions Handoff
 
-## Assignment and Correct Sequence
+## Assignment and Current Boundary
 
-Implement **Milestone 2 — Accounts and categories only**, end to end, using the focused plan below. M0 is complete; M1 authentication/household bootstrap is complete (`d503e60`, as reported). **M2 is now implemented and verified on this checkout.** Do not search for a presumed completed M2 branch, rebuild M1 or skip ahead to transactions.
+Milestones 0–2 are complete. Milestone 3 transaction implementation is delivered on this checkout, with focused browser, disposable migration/API, security, and final integrated gates passing. Browser loading/failure visual rendering remains unverified; do not begin M4 dashboard work before user review of this evidence.
 
-Sequence: **M0 → M1 → M2 this assignment → M3 transactions → M4 dashboard → M5 budgets → M6 export/operations.**
+## M3 Focused Completion Evidence
 
-This handoff began as a planning-only assignment; the M2 implementation, integrated acceptance gates, security review, and status updates are now complete. M3 remains untouched.
-## M2 Completion Evidence
+- Real-backend Playwright command: `cd frontend && npx playwright test e2e/transactions.spec.ts` — **2 passed** at `1280×900` and `390×844`, with generated credentials, `Pacific/Kiritimati`, and frontend clock `2026-09-06T12:30:00Z`. The workflow explicitly submitted September `2026-09`, asserted a ready state before saving and before the September-hidden Netflix assertion, entered Salary/Groceries on exact `2026-09-07` dates and Netflix at `2026-08-30`, asserted the rendered Salary row's exact positive locale amount `3.500,00 €` before later filters/deletion, verified Netflix as exact expense `-17,99 €` after clearing month/account filters, verified keyboard amount entry/validation (`0` stayed visible, focused, and invalid; then the amount was replaced and the expense save completed), corrected archived Groceries to `2026-08-31`, cancelled then confirmed deletion, performed a real `page.reload()` persistence check, verified `4.410,00 €`/raw `441000`, separately exercised expired-session save redirect, navigated to `/transactions` before shell logout, and verified browser-back/direct deep-link denial without financial content.
+- Disposable migration/API command: with an explicitly temporary `TemporaryDirectory` SQLite URL, the checker printed `before_cycle_0003 initial_balance=-8472 balance=-8472`, `upgrade_to_head=0004_transactions transactions_table_present=True`, `after_0004_upgrade initialBalance=-8472 balance=-8472 transactions_table_present=True`, `post_upgrade_transaction=created_and_read amount=-1000`, `after_transaction initialBalance=-8472 balance=-9472`, `after_0003_downgrade m2_records_preserved=True transactions_table_present=False initial_balance=-8472 balance=-8472`, and `after_0004_reupgrade m2_records_preserved=True transactions_table_present=True initial_balance=-8472 balance=-8472`. M2 household/account/category rows remained preserved through downgrade and final re-upgrade.
+- Focused M3 security review found no confirmed issue across household predicates, creator immutability, archive/reference checks, sign/cents/date validation, literal search parameterization, explicit response fields, text rendering, CSRF/401 flow, or private-data logging. `backend/app/transactions.py` has no logger/print calls; `backend/app/errors.py:98-100` logs only HTTP method and URL path for unhandled errors, not request bodies, amounts, or descriptions. This was a focused source review, not external penetration testing.
+- Real-browser failure preservation is verified without mocks: context-offline save showed the connection alert with the form and amount retained and no success; invalid `XSRF-TOKEN` produced the actual 403 alert with the same preservation; `/api/auth/csrf` refreshed the token before canceling, and unique failed-save descriptions were absent from filtered history. Browser loading/failure visual rendering remains unverified. No unsafe request replay was used. Final integrated backend/frontend suites, build, and full Playwright run passed; deployment, network, backup/restore, and production-readiness gates remain unverified.
 
-- Backend: `cd backend && python -m pytest` — **55 passed**.
-- Frontend: `npm test -- --watch=false` — **8 files / 19 tests passed**; `npm run build -- --configuration development` passed.
-- Browser: `npx playwright test` — **6 passed** against a real backend at `1280×900` and `390×844`, including account/category CRUD, exact negative cents, warned balance acknowledgement, category grouping/type immutability, archive/read-only behavior, reload, logout, and protected deep-link denial.
-- Migrations: disposable fresh `0002_identity → 0003_accounts_categories` preserved identity/session rows and exact `-8472` cents; a separate `0003 → 0002 → 0003` cycle preserved identity/session rows while removing/recreating financial tables; an empty database reached `0003_accounts_categories` head.
-- Bootstrap: disposable real PTY runs accepted all **17** exact default category pairs and declined with **0** category rows.
-- Security: focused M2 review found no confirmed Critical, High, Medium, or Low vulnerability. Optional defense-in-depth notes remain documented in `state.md`; no M3 artifact changed.
+## Next User-Review Boundary
 
+Review the focused M3 evidence, final integrated results, and remaining browser visual limitation, then request user approval before Milestone 4. M4 and production readiness are not complete.
+
+## Historical M2 Record
 ## Read First
 
 1. `BUDGET_TRACKER_MVP_SPEC.md` — source of truth; focus on §§5, 7.7, 9–11, 16–17, 21–25, 33, 35, 37–43 and M2 in §44.
@@ -84,17 +84,17 @@ Also prove:
 - Safe-cent boundaries, signed/zero balances, exact decimal round trips/display, enum/name/uniqueness boundaries, immutable category type, archive idempotency and retained rows.
 - Disposable M1-data upgrade to `0003_accounts_categories` preserves identity/membership/session behavior; a separate disposable downgrade/re-upgrade preserves M1 identities. Downgrade intentionally removes M2 tables/data; never claim otherwise.
 - Real `init-household` prompt with defaults accepted and declined; rollback on actual seed uniqueness failure; no defaults automatically added to existing households.
-- Real browser at 1280×900 and 390×844: login → create account/category → rename/type or warned balance edit → cancel/confirm archive → show archived → refresh → logout → financial deep-link denial. Include keyboard use, labelled errors, failed-save preservation and readable exact amounts.
+- Real browser at 1280×900 and 390×844: login → create account/category → rename/type or warned balance edit → cancel/confirm archive → show archived → refresh → logout → financial deep-link denial. Include keyboard amount entry/validation, labelled errors, failed-save preservation and readable exact amounts.
 - Focused authorization/security review, concrete findings fixed and reproductions rerun. Passing suites alone is not the review.
 
 If runtime tooling is unavailable, finish reachable work and report the exact unverified gate. Do not claim complete implementation without evidence.
 
-## Execution and Completion
+## Historical M2 Execution Record
 
 Execute inline unless a backend owner (Tasks 1–2) and frontend owner (Tasks 3–4) genuinely run concurrently against the plan's fixed contracts. Shared models/schemas/migrations/routes have one owner each. Concurrent workers skip builds/tests/linters; validate centrally after edits settle.
 
-Runtime proof is complete. `README.md`, `state.md`, and this active handoff now record the actual behavior, exact command counts, migration/CLI/browser evidence, security result, and remaining unverified later-release work. Owned disposable databases and browser-run artifacts were removed. Do not commit, push or deploy without separate authorization.
+Focused runtime proof is complete. `README.md`, `state.md`, and this active handoff now record the actual behavior, exact command counts, migration/API/browser evidence, security result including the verified logger/source review, and remaining unverified later-release work. The temporary migration script/database and browser-run artifacts were removed. Do not commit, push or deploy without separate authorization.
 
-Out of scope: M3 transactions/aggregates, M4 analytics, M5 budgets, M6 export/settings/operations/release, transfers/imports/recurrence, icons/colors, unarchive, pagination, public registration and production-readiness claims.
+Historical M2 scope excluded transactions/aggregates, M4 analytics, M5 budgets, M6 export/settings/operations/release, transfers/imports/recurrence, icons/colors, unarchive, pagination, public registration and production-readiness claims. Current M3 scope stops before M4 dashboard, budgets, export/settings, deployment, backups, restore, and production-readiness work.
 
-**Stop after verified Milestone 2. Request user review before Milestone 3 — Transactions.**
+**Historical boundary:** Milestone 2 was previously verified. The current boundary is focused M3 evidence plus the final integrated commands and user review before M4; M4 and production readiness remain incomplete.

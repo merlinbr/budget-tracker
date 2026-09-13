@@ -43,3 +43,32 @@ export interface CategoryCreate {
 export interface CategoryUpdate {
   name: string;
 }
+export type TransactionType = "expense" | "income";
+
+export interface Transaction {
+  id: number;
+  accountId: number;
+  categoryId: number;
+  amount: number;
+  description: string | null;
+  transactionDate: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TransactionWrite {
+  accountId: number;
+  categoryId: number;
+  amount: number;
+  description?: string | null;
+  transactionDate: string;
+}
+
+export interface TransactionFilters {
+  year?: number;
+  month?: number;
+  accountId?: number;
+  categoryId?: number;
+  type?: TransactionType;
+  search?: string;
+}

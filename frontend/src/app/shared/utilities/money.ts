@@ -30,3 +30,7 @@ export function formatMoney(cents: number): string {
   const absolute = BigInt(Math.abs(cents));
   return `${cents < 0 ? "-" : ""}${wholeEuroFormatter.format(absolute / 100n)},${String(absolute % 100n).padStart(2, "0")}\u00a0€`;
 }
+
+export function localToday(now = new Date()): string {
+  return `${String(now.getFullYear()).padStart(4, "0")}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}

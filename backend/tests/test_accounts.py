@@ -41,6 +41,164 @@ def test_account_lifecycle(authenticated_client, csrf_headers):
     assert client.get(url).json()["name"] == "Main"
 
 
+
+def test_balance_moves_with_transaction_and_initial_balance(
+    authenticated_client, csrf_headers
+):
+    client = authenticated_client
+    checking = client.post(
+        "/api/accounts",
+        json={"name": "Checking", "type": "checking", "initialBalance": 1000},
+        headers=csrf_headers(),
+    ).json()
+    savings = client.post(
+        "/api/accounts",
+        json={"name": "Savings", "type": "savings", "initialBalance": 2000},
+        headers=csrf_headers(),
+    ).json()
+    category = client.post(
+        "/api/categories",
+        json={"name": "Groceries", "type": "expense"},
+        headers=csrf_headers(),
+    ).json()
+    transaction_payload = {
+        "accountId": checking["id"],
+        "categoryId": category["id"],
+        "amount": -300,
+        "description": "Groceries",
+        "transactionDate": "2026-09-07",
+    }
+    transaction = client.post(
+        "/api/transactions",
+        json=transaction_payload,
+        headers=csrf_headers(),
+    ).json()
+    assert client.get(f"/api/accounts/{checking['id']}").json()["balance"] == 700
+    assert client.get(f"/api/accounts/{savings['id']}").json()["balance"] == 2000
+
+    moved = client.put(
+        f"/api/transactions/{transaction['id']}",
+        json={**transaction_payload, "accountId": savings["id"]},
+        headers=csrf_headers(),
+    )
+    assert moved.status_code == 200
+    balances = {
+        row["id"]: row["balance"] for row in client.get("/api/accounts").json()
+    }
+    assert balances == {checking["id"]: 1000, savings["id"]: 1700}
+
+    changed = client.put(
+        f"/api/accounts/{savings['id']}",
+        json={"name": "Savings", "type": "savings", "initialBalance": 2500},
+        headers=csrf_headers(),
+    )
+    assert changed.status_code == 200
+    assert changed.json()["initialBalance"] == 2500
+    assert changed.json()["balance"] == 2200
+
+    assert (
+        client.post(
+            f"/api/accounts/{savings['id']}/archive", headers=csrf_headers()
+        ).status_code
+        == 204
+    )
+    assert client.get(f"/api/accounts/{savings['id']}").json()["balance"] == 2200
+    assert [row["id"] for row in client.get("/api/accounts").json()] == [checking["id"]]
+    assert [
+        row["id"]
+        for row in client.get("/api/accounts?includeArchived=true").json()
+    ] == [checking["id"], savings["id"]]
+
+
+def test_account_balance_money_edges_and_archived_category(
+    authenticated_client, csrf_headers
+):
+    client = authenticated_client
+    account = client.post(
+        "/api/accounts",
+        json={"name": "Edges", "type": "credit_card", "initialBalance": -2},
+        headers=csrf_headers(),
+    ).json()
+    expense = client.post(
+        "/api/categories",
+        json={"name": "Archived expense", "type": "expense"},
+        headers=csrf_headers(),
+    ).json()
+    income = client.post(
+        "/api/categories",
+        json={"name": "Repeated cents", "type": "income"},
+        headers=csrf_headers(),
+    ).json()
+    transaction_payload = {
+        "accountId": account["id"],
+        "categoryId": expense["id"],
+        "amount": -1,
+        "description": "Archived expense",
+        "transactionDate": "2026-09-07",
+    }
+    assert (
+        client.post(
+            "/api/transactions",
+            json=transaction_payload,
+            headers=csrf_headers(),
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            f"/api/categories/{expense['id']}/archive", headers=csrf_headers()
+        ).status_code
+        == 204
+    )
+    for index in range(100):
+        repeated = client.post(
+            "/api/transactions",
+            json={
+                **transaction_payload,
+                "categoryId": income["id"],
+                "amount": 1,
+                "description": f"Cent {index}",
+            },
+            headers=csrf_headers(),
+        )
+        assert repeated.status_code == 201, repeated.text
+    assert client.get(f"/api/accounts/{account['id']}").json()["balance"] == 97
+
+    maximum = 9007199254740991
+    limit_account = client.post(
+        "/api/accounts",
+        json={"name": "Limit", "type": "cash", "initialBalance": maximum},
+        headers=csrf_headers(),
+    ).json()
+    assert limit_account["balance"] == maximum
+    one_cent = client.post(
+        "/api/transactions",
+        json={
+            **transaction_payload,
+            "accountId": limit_account["id"],
+            "categoryId": income["id"],
+            "amount": 1,
+            "description": "Over limit",
+        },
+        headers=csrf_headers(),
+    )
+    assert one_cent.status_code == 201
+    overflow = client.get(f"/api/accounts/{limit_account['id']}")
+    assert overflow.status_code == 409
+    assert overflow.json()["error"]["code"] == "CONFLICT"
+    failed_update = client.put(
+        f"/api/accounts/{limit_account['id']}",
+        json={"name": "Limit changed", "type": "cash", "initialBalance": maximum},
+        headers=csrf_headers(),
+    )
+    assert failed_update.status_code == 409
+    old_name_reuse = client.post(
+        "/api/accounts",
+        json={"name": "Limit", "type": "cash", "initialBalance": 0},
+        headers=csrf_headers(),
+    )
+    assert old_name_reuse.status_code == 409
+
 def test_account_validation_and_duplicate_name(authenticated_client, csrf_headers):
     client = authenticated_client
     valid = {"name": "Cash", "type": "cash", "initialBalance": 0}

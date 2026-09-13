@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { formatMoney, moneyInput, parseMoney, parseSignedMoney, signedMoneyInput } from "./money";
+import { formatMoney, localToday, moneyInput, parseMoney, parseSignedMoney, signedMoneyInput } from "./money";
 
 it("keeps signed initial balances and unsigned transaction entry exact", () => {
   expect(parseMoney("84,72")).toBe(8472);
@@ -16,4 +16,8 @@ it("keeps signed initial balances and unsigned transaction entry exact", () => {
   }
   expect(formatMoney(-1)).toContain("-0,01");
   expect(formatMoney(Number.MAX_SAFE_INTEGER)).toContain("90.071.992.547.409,91");
+});
+
+it("uses local calendar components for today", () => {
+  expect(localToday(new Date(2026, 8, 7, 0, 5))).toBe("2026-09-07");
 });

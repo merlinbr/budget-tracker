@@ -1,12 +1,14 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    Text,
     String,
     UniqueConstraint,
 )
@@ -130,6 +132,50 @@ class Category(Base):
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     is_archived: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "typeof(amount) = 'integer'", name="ck_transactions_amount_integer"
+        ),
+        CheckConstraint("amount != 0", name="ck_transactions_amount_nonzero"),
+        CheckConstraint(
+            "amount BETWEEN -9007199254740991 AND 9007199254740991",
+            name="ck_transactions_amount_range",
+        ),
+        CheckConstraint(
+            "description IS NULL OR length(description) <= 500",
+            name="ck_transactions_description_length",
+        ),
+        Index("ix_transactions_household_date", "household_id", "transaction_date"),
+        Index("ix_transactions_account_date", "account_id", "transaction_date"),
+        Index("ix_transactions_category_date", "category_id", "transaction_date"),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("households.id", ondelete="RESTRICT"), nullable=False
+    )
+    account_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=False
+    )
+    category_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("categories.id", ondelete="RESTRICT"), nullable=False
+    )
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
+    created_by_user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now

@@ -5,6 +5,7 @@ import { AccountsPage } from "./features/accounts/accounts.page";
 import { CategoriesPage } from "./features/categories/categories.page";
 import { DashboardPage } from "./features/dashboard/dashboard.page";
 import { LoginPage } from "./features/login/login.page";
+import { TransactionsPage } from "./features/transactions/transactions.page";
 import { AppShellComponent } from "./layout/app-shell";
 
 export const routes: Routes = [
@@ -17,6 +18,7 @@ export const routes: Routes = [
       { path: "", pathMatch: "full", redirectTo: "dashboard" },
       { path: "dashboard", component: DashboardPage, canActivate: [authGuard], canDeactivate: [pendingFormGuard] },
       { path: "accounts", component: AccountsPage, canActivate: [authGuard], canDeactivate: [pendingFormGuard] },
+      { path: "transactions", component: TransactionsPage, canActivate: [authGuard], canDeactivate: [pendingFormGuard] },
       { path: "categories", component: CategoriesPage, canActivate: [authGuard], canDeactivate: [pendingFormGuard] },
     ],
   },
