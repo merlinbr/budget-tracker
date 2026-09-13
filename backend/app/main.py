@@ -9,6 +9,7 @@ from .auth.csrf import csrf_guard
 from .auth.rate_limit import LoginRateLimiter
 from .auth.router import router as auth_router
 from .accounts import router as accounts_router
+from .dashboard import router as dashboard_router
 from .transactions import router as transactions_router
 from .categories import router as categories_router
 from .auth.sessions import clear_auth_cookies
@@ -50,6 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(accounts_router)
     app.include_router(categories_router)
     app.include_router(transactions_router)
+    app.include_router(dashboard_router)
     return app
 
 

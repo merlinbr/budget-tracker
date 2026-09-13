@@ -24,6 +24,8 @@ const sessionSecret =
 const e2eExpiredSessionToken =
   process.env["BUDGET_E2E_EXPIRED_SESSION_TOKEN"] ??
   randomBytes(32).toString("base64url");
+const dashboardPassword =
+  process.env["BUDGET_E2E_DASHBOARD_PASSWORD"] ?? randomBytes(24).toString("base64url");
 
 process.env["BUDGET_E2E_DATA_DIRECTORY"] = e2eDataDirectory;
 process.env["BUDGET_E2E_DATABASE_URL"] = databaseUrl;
@@ -31,6 +33,7 @@ process.env["BUDGET_E2E_USERNAME"] = e2eUsername;
 process.env["BUDGET_E2E_PASSWORD"] = e2ePassword;
 process.env["BUDGET_E2E_SESSION_SECRET"] = sessionSecret;
 process.env["BUDGET_E2E_EXPIRED_SESSION_TOKEN"] = e2eExpiredSessionToken;
+process.env["BUDGET_E2E_DASHBOARD_PASSWORD"] = dashboardPassword;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -58,6 +61,7 @@ export default defineConfig({
         E2E_USERNAME: e2eUsername,
         E2E_PASSWORD: e2ePassword,
         E2E_EXPIRED_SESSION_TOKEN: e2eExpiredSessionToken,
+        E2E_DASHBOARD_PASSWORD: dashboardPassword,
       },
       url: "http://127.0.0.1:8000/api/health",
       reuseExistingServer: false,

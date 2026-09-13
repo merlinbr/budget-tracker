@@ -149,6 +149,49 @@ class CategoryResponse(BaseModel):
     is_archived: bool = Field(alias="isArchived")
 
 
+class DashboardPeriod(BaseModel):
+    year: int = Field(ge=1, le=9999)
+    month: int = Field(ge=1, le=12)
+
+
+class DashboardSummary(BaseModel):
+    balance: Cents
+    income: Cents
+    expenses: Cents
+    net: Cents
+
+
+class DashboardSpending(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    category_id: int = Field(alias="categoryId")
+    category_name: str = Field(alias="categoryName")
+    spent: Cents
+
+
+class DashboardTransaction(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: int
+    account_id: int = Field(alias="accountId")
+    account_name: str = Field(alias="accountName")
+    category_id: int = Field(alias="categoryId")
+    category_name: str = Field(alias="categoryName")
+    amount: Cents
+    description: str | None
+    transaction_date: date = Field(alias="transactionDate")
+
+
+class DashboardResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    period: DashboardPeriod
+    summary: DashboardSummary
+    budgets: list[dict[str, object]] = Field(default_factory=list, max_length=0)
+    spending_by_category: list[DashboardSpending] = Field(alias="spendingByCategory")
+    recent_transactions: list[DashboardTransaction] = Field(alias="recentTransactions")
+
+
 class HouseholdResponse(BaseModel):
     id: int
     name: str

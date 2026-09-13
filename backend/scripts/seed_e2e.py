@@ -37,4 +37,24 @@ with SessionLocal() as db:
             expires_at=utc_now() - timedelta(seconds=1),
         )
     )
+    dashboard_password = os.environ["E2E_DASHBOARD_PASSWORD"]
+    for width in (1280, 390):
+        dashboard_household = Household(name=f"Dashboard Household {width}")
+        db.add(dashboard_household)
+        db.flush()
+        dashboard_user = User(
+            username=f"e2e-dashboard-{width}",
+            display_name=f"Dashboard User {width}",
+            password_hash=hash_password(dashboard_password),
+            is_active=True,
+        )
+        db.add(dashboard_user)
+        db.flush()
+        db.add(
+            HouseholdMember(
+                household_id=dashboard_household.id,
+                user_id=dashboard_user.id,
+                role="owner",
+            )
+        )
     db.commit()

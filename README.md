@@ -1,6 +1,6 @@
 # Household Budget Tracker
 
-Private, self-hosted household budget tracker. Milestones 1–3 provide local authentication, household membership, account/category management, exact-cent balances, archive workflows, and transaction entry/history. Browser list loading/failure visual rendering remains unverified; dashboard and later financial features remain out of scope.
+Private, self-hosted household budget tracker. Milestones 1–4 provide local authentication, household membership, account/category management, exact-cent balances, archive workflows, transaction entry/history, and a household-scoped selected-month dashboard. Browser list loading/failure visual rendering remains unverified; budgets and later features remain out of scope.
 
 ## Requirements
 
@@ -74,6 +74,13 @@ Verified locally against disposable databases and the real-backend browser harne
 - Focused M3 security review: no confirmed vulnerability in transaction household predicates, archive/reference checks, sign/cents/date validation, parameterized literal search, explicit responses, text rendering, preserved CSRF/401 flow, or private-data logging. `backend/app/transactions.py` has no logger/print calls; the generic logger at `backend/app/errors.py:98-100` records only HTTP method and URL path, not request bodies, amounts, or descriptions. This was a focused source review, not external penetration testing.
 - Real browser failure preservation: with the context offline, a valid save showed the connection alert while the form and amount remained; replacing only `XSRF-TOKEN` produced the actual 403 alert with the form and amount preserved; the real `/api/auth/csrf` endpoint refreshed CSRF before canceling, and unique failed-save descriptions were absent from filtered history.
 - Browser loading/failure visual rendering remains unverified. No API mocks/intercepts or unsafe request replay was used. Final integrated backend/frontend commands, build, and full Playwright run all passed; deployment, network, backup, and restore remain later gates.
+- M4 focused backend: `cd backend && python -m pytest tests/test_dashboard.py tests/test_accounts.py tests/test_money.py tests/test_authorization.py -q` — **45 passed**; the new `tests/test_dashboard.py` covers the exact September/October/November oracle, empty/initial-only/income-only households, join multiplication, archive retention, latest-ten ordering, equal-spending category-ID tie-break, leap/calendar bounds, validation, two-household isolation and member visibility, safe-integer and monthly overflow, scoped SQLite overflow, absence of financial logging, and a concurrent-write regression proving all four dashboard queries share one read snapshot.
+- M4 focused frontend: `cd frontend && npm test -- --watch=false --include=src/app/features/dashboard/dashboard.page.spec.ts` — **6 passed**; `npm run build` — **passed**.
+- M4 focused browser: `cd frontend && npx playwright test e2e/dashboard.spec.ts e2e/auth.spec.ts` — **4 passed** at `1280×900` and `390×844`, using isolated `e2e-dashboard-1280`/`e2e-dashboard-390` households, generated credentials, `Pacific/Kiritimati`, and frontend clock `2026-08-31T12:30:00Z`; covered the local-September default, exact rendered oracle per month, December/January rollover, keyboard month navigation, archive balance-versus-history, a nondefault-selection reload resetting to the local month, delayed real-GET loading, offline failure with Retry asserting a ready summary, expired-session redirect, and literal HTML-looking description.
+- M4 final integrated runs: `cd backend && python -m pytest` — **117 passed**; `cd frontend && npm test -- --watch=false` — **11 test files / 36 tests passed**; `npm run build` — **passed**; `npx playwright test` — **10 passed** at `1280×900` and `390×844`.
+- M4 dashboard ready, loading, empty and error screenshots were captured at both widths and the automated no-document-overflow and card-content assertions passed; pixel-level visual inspection was not performed in this environment, so the visual layout gate is asserted, not human-reviewed.
+- M4 financial consistency: `GET /api/dashboard` opens one explicit SQLite read transaction (`BEGIN`) so its four queries share a single WAL snapshot; a concurrent-write regression fails without it and passes with it.
+- Focused M4 security review: no confirmed vulnerability in the dashboard household predicates, joined name lookups, integer-cent precision, calendar bounds, request cancellation, 401 cleanup, or financial logging. `backend/app/dashboard.py` has no logger/print calls.
 
 ## Administration
 
@@ -127,7 +134,8 @@ Use a separate disposable database for downgrade/upgrade checks. Do not downgrad
 - `GET /api/health` is public and non-sensitive.
 - `GET /api/auth/csrf` bootstraps the signed readable CSRF cookie.
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, and `POST /api/auth/change-password` implement cookie-backed authentication.
-- `/dashboard` displays the authenticated user and household identity.
+- `/dashboard` renders the selected-month dashboard: four server-calculated summary cards (all-time non-archived account balance, month income, expenses, net), a sorted spending-by-category list, and up to ten recent transactions. A native labelled month input plus Previous/Next month controls default to the browser's local current month; month state is page-local.
+- `GET /api/dashboard?year=YYYY&month=M` is authenticated and household-scoped. Both parameters are required (year `1–9999`, month `1–12`); missing or invalid values return the shared 422 envelope. Balance is all-time across non-archived accounts and is independent of the selected month; monthly activity includes archived accounts/categories and uses inclusive first/last calendar-date bounds. Spending groups negative transactions by category with positive totals sorted by total descending then category ID; recent rows are the latest ten in the month. `budgets` is always `[]` in M4. Safe-integer or SQLite aggregate overflow returns 409 `CONFLICT` for the whole response.
 - `/accounts`, `/categories`, and `/transactions` provide guarded household-scoped management. Transactions support income/expense entry, calendar dates, description search, month/account/category/type filters, full edit, and hard delete with an accessible confirmation.
 - New transaction writes reject archived account or category references. An edit may retain the transaction's own archived account/category reference, but may not switch to a different archived reference.
 - Transaction history returns the full matching result set without pagination; description search uses SQLite's ASCII-only case-insensitive folding, so non-ASCII case variants are not normalized.
@@ -144,4 +152,4 @@ Use a separate disposable database for downgrade/upgrade checks. Do not downgrad
 - The optional default-category prompt runs only during new `init-household`; existing households are never seeded retroactively.
 
 
-Dashboard calculations, budgets, settings UI, registration, email recovery, backups, and production network changes belong to later milestones.
+Budgets and budget progress, settings UI, registration, email recovery, backups, and production network changes belong to later milestones.

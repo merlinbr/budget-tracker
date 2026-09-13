@@ -15,6 +15,9 @@ import { PendingFormService } from "../core/pending-form.service";
           <div>
             <p class="eyebrow">Private household finance</p>
             <h1 id="page-title">Budget Tracker</h1>
+            @if (auth.authState(); as state) {
+              <p class="identity">{{ state.user.displayName }} · {{ state.household.name }}</p>
+            }
           </div>
           <button type="button" (click)="logout()" [disabled]="isLoggingOut()">
             {{ isLoggingOut() ? "Signing out…" : "Sign out" }}
@@ -60,6 +63,7 @@ import { PendingFormService } from "../core/pending-form.service";
       text-transform: uppercase;
     }
     h1 { margin: 0.5rem 0 0; }
+    .identity { margin: 0.35rem 0 0; color: #52617a; overflow-wrap: anywhere; }
     button {
       min-height: 2.75rem;
       padding: 0.5rem 1rem;

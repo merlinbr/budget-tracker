@@ -14,7 +14,7 @@ def checked_cents(value: int) -> int:
         raise APIError(
             409,
             "CONFLICT",
-            "The calculated balance exceeds the supported range.",
+            "The calculated amount exceeds the supported range.",
         )
     return value
 

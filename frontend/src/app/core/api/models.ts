@@ -72,3 +72,33 @@ export interface TransactionFilters {
   type?: TransactionType;
   search?: string;
 }
+
+export interface DashboardPeriod {
+  year: number;
+  month: number;
+}
+
+export interface DashboardSpending {
+  categoryId: number;
+  categoryName: string;
+  spent: number;
+}
+
+export interface DashboardTransaction {
+  id: number;
+  accountId: number;
+  accountName: string;
+  categoryId: number;
+  categoryName: string;
+  amount: number;
+  description: string | null;
+  transactionDate: string;
+}
+
+export interface DashboardResponse {
+  period: DashboardPeriod;
+  summary: { balance: number; income: number; expenses: number; net: number };
+  budgets: never[];
+  spendingByCategory: DashboardSpending[];
+  recentTransactions: DashboardTransaction[];
+}

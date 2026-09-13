@@ -17,12 +17,13 @@ test("logs in, restores, logs out, and protects the dashboard", async ({ page })
   await page.keyboard.press("Enter");
 
   await expect(page).toHaveURL(/\/dashboard$/);
-  await expect(page.getByRole("heading", { name: "Welcome, E2E User" })).toBeVisible();
-  await expect(page.getByText("E2E Household")).toBeVisible();
+  await expect(page.locator("header")).toContainText("E2E User");
+  await expect(page.locator("header")).toContainText("E2E Household");
 
   await page.reload();
   await expect(page).toHaveURL(/\/dashboard$/);
-  await expect(page.getByRole("heading", { name: "Welcome, E2E User" })).toBeVisible();
+  await expect(page.locator("header")).toContainText("E2E User");
+  await expect(page.locator("header")).toContainText("E2E Household");
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
