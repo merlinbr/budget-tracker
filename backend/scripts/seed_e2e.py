@@ -57,4 +57,24 @@ with SessionLocal() as db:
                 role="owner",
             )
         )
+    budgets_password = os.environ["E2E_BUDGETS_PASSWORD"]
+    for width in (1280, 390):
+        budgets_household = Household(name=f"Budgets Household {width}")
+        db.add(budgets_household)
+        db.flush()
+        budgets_user = User(
+            username=f"e2e-budgets-{width}",
+            display_name=f"Budgets User {width}",
+            password_hash=hash_password(budgets_password),
+            is_active=True,
+        )
+        db.add(budgets_user)
+        db.flush()
+        db.add(
+            HouseholdMember(
+                household_id=budgets_household.id,
+                user_id=budgets_user.id,
+                role="owner",
+            )
+        )
     db.commit()

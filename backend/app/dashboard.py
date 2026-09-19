@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .accounts import _balance_query, _execute_balance_query, account_response
 from .auth.dependencies import HouseholdContext, require_household
+from .budgets import budget_rows
 from .db import get_db
 from .errors import APIError
 from .models import Account, Category, Transaction
@@ -32,9 +33,9 @@ def get_dashboard(
     db: Session = Depends(get_db),
 ) -> DashboardResponse:
     household_id = context.household_id
-    # pysqlite opens no transaction for plain SELECTs, so four independent reads
+    # pysqlite opens no transaction for plain SELECTs, so independent reads
     # could observe different committed states. One explicit read transaction gives
-    # all four a single WAL snapshot.
+    # every dashboard section a single WAL snapshot.
     db.execute(text("BEGIN"))
     first = date(year, month, 1)
     last = date(year, month, monthrange(year, month)[1])
@@ -105,6 +106,7 @@ def get_dashboard(
     return DashboardResponse(
         period=DashboardPeriod(year=year, month=month),
         summary=DashboardSummary(balance=balance, income=income, expenses=expenses, net=net),
+        budgets=budget_rows(db, household_id, year, month),
         spending_by_category=[
             DashboardSpending(category_id=id, category_name=name, spent=checked_cents(total))
             for id, name, total in spending_rows

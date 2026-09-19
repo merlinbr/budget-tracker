@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-**Milestone 4 — Selected-Month Dashboard (implemented; user review required before M5)**
+**Milestone 5 — Monthly Budgets (implemented; user review required before M6)**
 
-Milestones 1–3 remain completed and verified. Milestone 4 replaces the identity-only landing page with a household-scoped selected-month dashboard backed by `GET /api/dashboard`, with exact-cent server totals, native month navigation, sorted spending and ten recent transactions. Focused backend/frontend/browser gates and the final integrated suites, build, and full browser run passed. Browser list loading/failure visual rendering (M3) remains unverified; M4 screenshots were captured and layout assertions passed without pixel-level visual review.
+Milestones 1–4 remain completed and verified under their own gates. Milestone 5 adds household-scoped monthly category budgets: Alembic revision `0005_budgets`, authenticated `GET/PUT/DELETE /api/budgets` plus atomic copy-previous, translated into the dashboard `budgets` section and a guarded Angular `/budgets` page at both widths. All focused and final integrated verification gates passed (backend **211**, frontend **52**/build, Playwright **12**), including a disposable DB migration cycle proving 0004↔0005 preserves M4 data and an actual PUT limit 60000 → remaining 51528. Browser list loading/failure visual rendering (M3/M4 style) and pixel-level visual review remain assertable-but-not-human-reviewed; M5 screenshots/automation assertions passed without human visual inspection.
 
 ## Completed
 
@@ -23,6 +23,9 @@ Milestones 1–3 remain completed and verified. Milestone 4 replaces the identit
 - Angular `/transactions` provides guarded add/edit/filter/delete workflow with accessible validation and confirmation.
 - `GET /api/dashboard` returns the household-scoped selected-month summary, sorted category spending, ten recent transactions and an empty `budgets` array; current balance is all-time across non-archived accounts.
 - Angular `/dashboard` renders the selected-month dashboard with local-month default, native month input, Previous/Next controls, four summary cards, spending and recent lists, and coherent loading/error/ready states.
+- Milestone 5 (monthly budgets): Alembic revision `0005_budgets` creates a household-scoped `budgets` table with unique `(household_id, category_id, year, month)`, year/month/limit check constraints, and an index on `(household_id, year, month)`.
+- `GET/PUT/DELETE /api/budgets` and `POST /api/budgets/copy-previous` run under `require_household`, validate before committing inside `BEGIN IMMEDIATE`, roll back atomically on any error (including SQLite aggregate overflow → 409), and expose exact-cent limit/spent/remaining/progress.
+- Angular `/budgets` renders budget rows for the selected month, supports set/edit/remove and copy-previous with a replacement confirmation, and reuses the dashboard month navigation; the dashboard `budgets` section now shows real budgets instead of an empty array.
 
 ## Verification
 
@@ -40,6 +43,12 @@ Milestones 1–3 remain completed and verified. Milestone 4 replaces the identit
 - M4 final integrated checks: `cd backend && python -m pytest` — **117 passed**; `cd frontend && npm test -- --watch=false` — **11 test files / 36 tests passed**; `npm run build` — **passed**; `npx playwright test` — **10 passed** at `1280×900` and `390×844`.
 - M4 dashboard ready, loading, empty and error screenshots were captured at both widths; the automated no-document-overflow and card-content assertions passed. Pixel-level visual inspection was not performed in this environment, so the M4 visual layout gate is asserted by automation, not human-reviewed.
 - M4 financial consistency: `GET /api/dashboard` opens one explicit SQLite read transaction (`BEGIN`) so its four queries share a single WAL snapshot; the concurrent-write regression fails without the transaction and passes with it.
+- M5 focused backend `cd backend && python -m pytest tests/test_budgets.py tests/test_dashboard.py tests/test_authorization.py -p no:warnings`: **131 passed**. `tests/test_budgets.py` covers zero/empty/exact-limit semantics, calendar/sign/scoping of `spent` (foreign-household and income rows never counted), calendar bounds, strict validation of limits/periods/paths/bodies, anonymous 401 and missing-CSRF 403, owner/member/foreign isolation, archived-category rules, unique-key concurrent upserts (exactly one row survives), raw migrated-row constraint enforcement, atomic copy-previous with overwrite confirmation, January/zero/archived edges, and safe-integer plus SQLite-overflow rollback paths.
+- M5 focused frontend `cd frontend && npm test -- --watch=false --include=src/app/features/budgets/budgets.page.spec.ts --include=src/app/features/dashboard/dashboard.page.spec.ts`: **22 passed (2 files)**; `npm run build`: **passed**.
+- M5 focused browser `cd frontend && npx playwright test e2e/budgets.spec.ts`: **2 passed** at `1280×900` and `390×844` with isolated `e2e-budgets-1280`/`e2e-budgets-390` households and generated credentials against the real backend (set→update→remove lifecycle and copy-previous confirmation at both widths).
+- M5 final integrated checks: `cd backend && python -m pytest -p no:warnings` — **211 passed**; `cd frontend && npm test -- --watch=false` — **12 test files / 52 tests passed**; `npm run build` — **passed**; `npx playwright test` — **12 passed** at `1280×900` and `390×844`.
+- M5 disposable migration cycle: seeded M4 rows on `0004` (initial balance `100000`, September expense `-8472`) survived `0004 → 0005` unchanged; through the M5 app the seeded identity logged in, `GET /api/dashboard` returned expenses `8472`/balance `91528`/empty `budgets`, and `PUT /api/budgets/1` limit `60000` returned `remaining 51528`; downgrade to `0004` removed `budgets` and preserved every M4 row; re-upgrade re-reached head with empty `budgets` and unchanged dashboard totals; a separate empty database upgraded to head `0005_budgets`.
+- Focused M5 security review: no confirmed vulnerability in budget household predicates, CSRF coverage, atomicity/validate-before-commit ordering, integer-cent handling, overflow scoping, or financial logging (`backend/app/budgets.py` has no logger/print calls; the shared error logger records only method and path). This was a focused source review, not external penetration testing.
 
 The development Compose environment uses Caddy's internal CA; clients must trust
 that CA or use an explicit development-only certificate bypass.
@@ -51,6 +60,7 @@ that CA or use an explicit development-only certificate bypass.
 - Real-browser failed-save preservation is verified without mocks: offline save showed the connection alert with the form and amount retained and no success; invalid `XSRF-TOKEN` produced the actual 403 alert with the same preservation; `/api/auth/csrf` refreshed the token before canceling, and unique failed-save descriptions were absent from filtered history.
 - M3 browser loading/failure visual rendering remains unverified; no API mocks/intercepts or unsafe request replay was used.
 - Focused M4 review found no confirmed vulnerability in the dashboard household predicates, joined account/category name lookups, integer-cent precision, calendar bounds, request cancellation, 401 cleanup, or financial logging. `backend/app/dashboard.py` has no logger/print calls; the shared logger records only HTTP method and URL path. This was a focused source review, not external penetration testing.
+- Focused M5 review found no confirmed vulnerability in budget household predicates (`require_household` on every route; `household_id` present in every query and joined category lookup), CSRF coverage (`csrf_guard` is a global FastAPI dependency, so all three budget write routes are covered), atomic `BEGIN IMMEDIATE` writes that validate responses before commit and roll back on any exception, or financial logging (`backend/app/budgets.py` has no logger/print calls). This was a focused source review, not external penetration testing.
 - Deferred defense-in-depth: explicit private/no-store headers for financial GETs, CSP/HSTS, full UUID E2E suffixes, and shared/multi-worker limiter operation. These have no demonstrated M2/M3 exploit in the current deployment.
 
 Residual boundary: the limiter is intentionally in-memory and single-worker. Behind
@@ -67,9 +77,9 @@ release work.
 - [x] M2 / Task 2.1 — Household-scoped accounts and categories
 - [x] M3 / Task 3.1 — Exact-cent transactions and filtered history (focused browser/migration/security gates and final integrated checks passed; browser loading/failure visual rendering remains unverified; user review before M4)
 - [x] M4 / Task 4.1 — Selected-month dashboard (focused backend/frontend/browser gates and final integrated checks passed; screenshots captured with layout assertions, pixel-level visual review not performed; user review before M5)
-- [ ] M5 / Task 5.1 — Monthly budgets
+- [x] M5 / Task 5.1 — Monthly budgets (implemented; focused backend/frontend/browser gates, migration cycle, and final integrated checks passed; user review required before M6)
 - [ ] M6 / Task 6.1 — Settings and CSV export
 - [ ] M6 / Task 6.2 — Deployment, backups, restore, and network boundary
 - [ ] M6 / Task 6.3 — Complete MVP acceptance evidence
 
-Final integrated checks pass. Request user review of verified M4 before starting Milestone 5 — monthly budgets. Do not claim M5, the full MVP, or production readiness.
+Final integrated checks pass. Request user review of verified M5 before starting Milestone 6 — settings and CSV export. Do not claim the full MVP or production readiness.

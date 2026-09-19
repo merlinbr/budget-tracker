@@ -28,12 +28,13 @@ import { PendingFormService } from "../core/pending-form.service";
           <a routerLink="/accounts" routerLinkActive="active" ariaCurrentWhenActive="page">Accounts</a>
           <a routerLink="/categories" routerLinkActive="active" ariaCurrentWhenActive="page">Categories</a>
           <a routerLink="/transactions" routerLinkActive="active" ariaCurrentWhenActive="page">Transactions</a>
+          <a routerLink="/budgets" routerLinkActive="active" ariaCurrentWhenActive="page">Budgets</a>
         </nav>
         @if (logoutError(); as errorMessage) {
           <p class="message error" role="alert">{{ errorMessage }}</p>
         }
         @if (pendingForms.pending()) {
-          <p class="message" role="status" aria-live="polite">The current save or archive must finish before navigating away.</p>
+          <p class="message" role="status" aria-live="polite">The current operation must finish before navigating away or signing out.</p>
         }
         <router-outlet />
       </main>
@@ -110,7 +111,6 @@ export class AppShellComponent {
 
   logout(): void {
     if (this.pendingForms.pending()) {
-      this.logoutError.set("Finish saving the current form before signing out.");
       return;
     }
     if (this.isLoggingOut()) {

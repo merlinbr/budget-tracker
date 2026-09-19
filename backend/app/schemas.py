@@ -182,12 +182,37 @@ class DashboardTransaction(BaseModel):
     transaction_date: date = Field(alias="transactionDate")
 
 
+class BudgetWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    limit_amount: Annotated[Cents, Field(alias="limitAmount", ge=0)]
+
+
+class BudgetCopyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    year: int = Field(ge=1, le=9999)
+    month: int = Field(ge=1, le=12)
+    overwrite: bool = False
+
+
+class BudgetResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    category_id: int = Field(alias="categoryId")
+    category_name: str = Field(alias="categoryName")
+    is_archived: bool = Field(alias="isArchived")
+    year: int = Field(ge=1, le=9999)
+    month: int = Field(ge=1, le=12)
+    limit_amount: Annotated[Cents, Field(alias="limitAmount", ge=0)]
+    spent: Annotated[Cents, Field(ge=0)]
+    remaining: Cents
+    progress: float | None = Field(ge=0, allow_inf_nan=False)
+
+
 class DashboardResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     period: DashboardPeriod
     summary: DashboardSummary
-    budgets: list[dict[str, object]] = Field(default_factory=list, max_length=0)
+    budgets: list[BudgetResponse]
     spending_by_category: list[DashboardSpending] = Field(alias="spendingByCategory")
     recent_transactions: list[DashboardTransaction] = Field(alias="recentTransactions")
 

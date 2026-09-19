@@ -2,6 +2,7 @@ import { provideHttpClient } from "@angular/common/http";
 import { HttpTestingController, provideHttpClientTesting } from "@angular/common/http/testing";
 import { ComponentFixture, TestBed } from "@angular/core/testing";
 
+import { Budget } from "../../core/api/models";
 import { localToday } from "../../shared/utilities/money";
 import { DashboardPage } from "./dashboard.page";
 
@@ -145,5 +146,71 @@ describe("DashboardPage", () => {
     const request = dashboardRequest();
     fixture.destroy();
     expect(request.cancelled).toBe(true);
+  });
+
+  it("renders exact over-budget usage and percentages above 100 without another request", () => {
+    const overBudget: Budget = {
+      categoryId: 3, categoryName: "Groceries", isArchived: false, year: 2026, month: 9,
+      limitAmount: 8000, spent: 8472, remaining: -472, progress: 1.059,
+    };
+    dashboardRequest().flush({ ...emptyResponse(2026, 9), budgets: [overBudget] });
+    fixture.detectChanges();
+    const overview = fixture.nativeElement.querySelector('[aria-label="Budget overview"]') as HTMLElement;
+    expect(overview.textContent).toContain("Groceries");
+    expect(overview.textContent).toContain("84,72");
+    expect(overview.textContent).toContain("80,00");
+    expect(overview.textContent).toContain("4,72");
+    expect(overview.textContent).toContain("105,9");
+    expect(overview.textContent).toContain("Over budget");
+    http.expectNone((request) => request.url === "/api/budgets");
+  });
+
+  it("shows zero limits with exact overage or no spending and retains archived unused budgets", () => {
+    const zeroBudget: Budget = {
+      categoryId: 3, categoryName: "Groceries", isArchived: false, year: 2026, month: 9,
+      limitAmount: 0, spent: 8472, remaining: -8472, progress: null,
+    };
+    dashboardRequest().flush({
+      ...emptyResponse(2026, 9),
+      budgets: [
+        zeroBudget,
+        { ...zeroBudget, categoryId: 4, categoryName: "Transport", spent: 0, remaining: 0 },
+        { ...zeroBudget, categoryId: 5, categoryName: "Old hobbies", isArchived: true, limitAmount: 12000, spent: 0, remaining: 12000, progress: 0 },
+      ],
+    });
+    fixture.detectChanges();
+    const overview = fixture.nativeElement.querySelector('[aria-label="Budget overview"]') as HTMLElement;
+    const cards = overview.querySelectorAll("li");
+    expect(cards[0].textContent).toContain("84,72");
+    expect(cards[0].textContent).toContain("0,00");
+    expect(cards[0].textContent).toContain("Over budget");
+    expect(cards[0].textContent).not.toMatch(/%|NaN|Infinity/);
+    expect(cards[1].textContent).toContain("Zero budget — no spending");
+    expect(cards[1].textContent).not.toContain("%");
+    expect(cards[2].textContent).toContain("Old hobbies");
+    expect(cards[2].textContent).toContain("Archived category");
+    expect(cards[2].textContent).toContain("120,00");
+    expect(cards[2].textContent).toMatch(/0\s*%/);
+  });
+
+  it("distinguishes an exact limit from a rounded percentage and a missing overview", () => {
+    const atBudget: Budget = {
+      categoryId: 3, categoryName: "Groceries", isArchived: false, year: 2026, month: 9,
+      limitAmount: 60000, spent: 60000, remaining: 0, progress: 1,
+    };
+    dashboardRequest().flush({ ...emptyResponse(2026, 9), budgets: [
+      atBudget,
+      { ...atBudget, categoryId: 4, categoryName: "Near limit", spent: 59999, remaining: 1, progress: 59999 / 60000 },
+    ] });
+    fixture.detectChanges();
+    const cards = fixture.nativeElement.querySelectorAll('[aria-label="Budget overview"] li') as NodeListOf<HTMLLIElement>;
+    expect(cards[0].textContent).toContain("At budget");
+    expect(cards[1].textContent).toContain("Remaining 0,01");
+    expect(cards[1].textContent).not.toContain("At budget");
+    fixture.componentInstance.selectMonth("2026-10");
+    dashboardRequest().flush(emptyResponse(2026, 10));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain("No budgets for this month.");
+    expect(fixture.nativeElement.querySelector('[aria-label="Budget overview"]')).toBeNull();
   });
 });

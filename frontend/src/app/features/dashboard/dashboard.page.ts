@@ -5,6 +5,7 @@ import { Subject, catchError, map, of, startWith, switchMap } from "rxjs";
 
 import { DashboardPeriod, DashboardResponse } from "../../core/api/models";
 import { formatMoney, localToday } from "../../shared/utilities/money";
+import { BudgetUsageComponent } from "../budgets/budget-usage";
 import { DashboardService } from "./dashboard.service";
 
 type DashboardState =
@@ -15,6 +16,7 @@ type DashboardState =
 @Component({
   selector: "app-dashboard-page",
   standalone: true,
+  imports: [BudgetUsageComponent],
   template: `
     <section class="page" aria-labelledby="dashboard-title">
       <h2 id="dashboard-title">Dashboard</h2>
@@ -45,6 +47,22 @@ type DashboardState =
             <div><dt>Net this month</dt><dd>{{ formatMoney(view.data.summary.net) }}</dd></div>
           </dl>
           <p>Current balance includes all dates for non-archived accounts. Monthly activity includes archived accounts and categories.</p>
+          <section aria-labelledby="budget-overview-title">
+            <h3 id="budget-overview-title">Budget overview</h3>
+            @if (view.data.budgets.length === 0) {
+              <p>No budgets for this month.</p>
+            } @else {
+              <ul class="cards" aria-label="Budget overview">
+                @for (budget of view.data.budgets; track budget.categoryId) {
+                  <li>
+                    <h4>{{ budget.categoryName }}</h4>
+                    @if (budget.isArchived) { <p>Archived category</p> }
+                    <app-budget-usage [budget]="budget" />
+                  </li>
+                }
+              </ul>
+            }
+          </section>
           <section aria-labelledby="spending-title">
             <h3 id="spending-title">Spending by category</h3>
             @if (view.data.spendingByCategory.length === 0) { <p>No spending this month.</p> }

@@ -1,12 +1,26 @@
-# Luna — Milestone 4 Dashboard Handoff
+# Luna — Milestone 5 Monthly Budgets Handoff
 
 ## Current Assignment
 
-**Milestone 4 — Selected-Month Dashboard is implemented and verified.** Read `docs/LUNA_M4_HANDOFF.md`, then the complete `docs/superpowers/plans/2026-09-13-dashboard.md` for the assignment context. The user reports M3 implemented and requested the M4 plan and handoff; all three M4 tasks and their verification gates are now complete. Stop before M5 monthly budgets.
+**Milestone 5 — Monthly Budgets is implemented and verified.** Read `docs/LUNA_M5_HANDOFF.md`, then the complete `docs/superpowers/plans/2026-09-14-monthly-budgets.md`. All three M5 tasks and their verification gates are complete; the verified evidence is recorded in `README.md`, `state.md`, and the M5 sections below. Stop before M6 settings/export/operations and request user review — M5 remains implemented-subject-to-review, and this handoff still does not authorize M6 work, pushes, or deployment.
 
-The material below is preserved historical M3/M2 completion evidence, not the current assignment. Do not commit, push or deploy without separate authorization.
+All M5 work is committed in a single milestone commit (`feat: implement Milestone 5 monthly budgets`), authorized by the user's explicit instruction during the implementation session. Your working tree should be clean at that boundary; any further edits continue to require separate authorization for commits.
 
-## M4 Completion Evidence
+The material below preserves historical M4/M3/M2 completion evidence, not the current assignment. Earlier instructions to stop before M5 and keep dashboard `budgets` empty describe the historical M4 boundary; M5 supersedes them and fills that section with real budgets.
+
+## M5 Completion Evidence
+
+- Backend: added `backend/app/budgets.py` (`GET /api/budgets`, `PUT/DELETE /api/budgets/{category_id}`, `POST /api/budgets/copy-previous`; `BEGIN IMMEDIATE` writes that validate responses before commit and roll back on any exception, including SQLite aggregate overflow → 409), migration `0005_budgets` (household-scoped `budgets` table, unique `(household_id, category_id, year, month)`, year/month/limit checks), `Budget`/`BudgetWrite`/`BudgetCopyRequest`/`BudgetResponse` models and schemas, and dashboard integration via `budget_rows` inside the existing single `BEGIN` snapshot.
+- Frontend: `budgets.service.ts`, `budget-usage.ts`, guarded `/budgets` page with set/edit/remove and copy-previous confirmation, `Budget` interface in `core/api/models.ts`, dashboard `budgets` section rendering real rows, and `/budgets` navigation entry in the app shell.
+- E2E: `frontend/e2e/budgets.spec.ts` runs the full lifecycle and copy-previous confirmation against the real backend at `1280×900` and `390×844` with isolated `e2e-budgets-1280`/`e2e-budgets-390` households; `backend/scripts/seed_e2e.py` seeds them via a generated `BUDGET_E2E_BUDGETS_PASSWORD` (never committed).
+- Focused backend `cd backend && python -m pytest tests/test_budgets.py tests/test_dashboard.py tests/test_authorization.py -p no:warnings` — **131 passed** (`tests/test_budgets.py` covers zero/empty/exact limits, spent scoping/sign/calendar injection, ownership isolation, archived-category rules, concurrent unique-key upserts, migrated raw-constraint enforcement, atomic copy semantics, and overflow rollback paths).
+- Focused frontend `npm test -- --watch=false --include=...budgets.page.spec.ts --include=...dashboard.page.spec.ts` — **22 passed (2 files)**; focused browser `npx playwright test e2e/budgets.spec.ts` — **2 passed**.
+- Final integrated runs: backend `pytest -p no:warnings` — **211 passed**; frontend `npm test -- --watch=false` — **12 test files / 52 tests**; `npm run build` — passed; `npx playwright test` — **12 passed** at both widths.
+- Disposable migration cycle on temporary SQLite URLs: M4 rows survived `0004 → 0005` unchanged; a temporararily real-hashed seeded identity authenticated, dashboard returned expenses `8472`/balance `91528`/empty `budgets`, `PUT` limit `60000` returned `remaining 51528`; downgrade removed `budgets` with M4 data intact; re-upgrade emptied budgets and kept totals; a separate empty database reached head `0005_budgets`.
+- Focused M5 security review found no confirmed vulnerability in household predicates (`require_household` everywhere), CSRF coverage (global `csrf_guard` dependency), validate-before-commit atomic writes, or financial logging; `backend/app/budgets.py` has no logger/print calls.
+- Limitation: browser scenarios assert rendered values, loading/error states and screenshots at both widths, but pixel-level human visual inspection was not performed in this environment (same standing limitation as M3/M4).
+
+## Historical M4 Completion Evidence
 
 - Backend: added `backend/app/dashboard.py` (one authenticated, household-scoped `GET /api/dashboard`), dashboard response schemas in `schemas.py`, router registration in `main.py`, and generalized the shared `checked_cents` overflow message to `The calculated amount exceeds the supported range.` (account-specific SQL-overflow wording unchanged). No migration or schema-table change.
 - Frontend: added `dashboard.service.ts` and `dashboard.page.spec.ts`; replaced the identity-only `dashboard.page.ts` with a local-month default, native labelled month input, Previous/Next controls, four summary cards, sorted spending and recent lists, and one loading/error/ready state; moved user/household identity into the shell header; removed the two obsolete `Welcome, E2E User` assertions from `e2e/auth.spec.ts`.

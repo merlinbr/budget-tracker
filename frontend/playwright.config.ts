@@ -26,6 +26,8 @@ const e2eExpiredSessionToken =
   randomBytes(32).toString("base64url");
 const dashboardPassword =
   process.env["BUDGET_E2E_DASHBOARD_PASSWORD"] ?? randomBytes(24).toString("base64url");
+const budgetsPassword =
+  process.env["BUDGET_E2E_BUDGETS_PASSWORD"] ?? randomBytes(24).toString("base64url");
 
 process.env["BUDGET_E2E_DATA_DIRECTORY"] = e2eDataDirectory;
 process.env["BUDGET_E2E_DATABASE_URL"] = databaseUrl;
@@ -34,6 +36,7 @@ process.env["BUDGET_E2E_PASSWORD"] = e2ePassword;
 process.env["BUDGET_E2E_SESSION_SECRET"] = sessionSecret;
 process.env["BUDGET_E2E_EXPIRED_SESSION_TOKEN"] = e2eExpiredSessionToken;
 process.env["BUDGET_E2E_DASHBOARD_PASSWORD"] = dashboardPassword;
+process.env["BUDGET_E2E_BUDGETS_PASSWORD"] = budgetsPassword;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -42,7 +45,7 @@ export default defineConfig({
   retries: process.env["CI"] ? 2 : 0,
   reporter: "list",
   use: {
-    baseURL: "http://127.0.0.1:4200",
+    baseURL: "http://127.0.0.1:4215",
     trace: "on-first-retry",
   },
   globalTeardown: "./e2e/global-teardown.ts",
@@ -55,22 +58,23 @@ export default defineConfig({
         DATABASE_URL: databaseUrl,
         SESSION_SECRET: sessionSecret,
         SESSION_MAX_AGE_DAYS: "30",
-        ALLOWED_ORIGINS: "http://127.0.0.1:4200,http://localhost:4200",
+        ALLOWED_ORIGINS: "http://127.0.0.1:4215,http://localhost:4215",
         TRUSTED_HOSTS: "127.0.0.1,localhost",
         SECURE_COOKIES: "false",
         E2E_USERNAME: e2eUsername,
         E2E_PASSWORD: e2ePassword,
         E2E_EXPIRED_SESSION_TOKEN: e2eExpiredSessionToken,
         E2E_DASHBOARD_PASSWORD: dashboardPassword,
+        E2E_BUDGETS_PASSWORD: budgetsPassword,
       },
       url: "http://127.0.0.1:8000/api/health",
       reuseExistingServer: false,
       timeout: 120_000,
     },
     {
-      command: "npm start -- --host 127.0.0.1 --port 4200",
+      command: "npm start -- --host 127.0.0.1 --port 4215",
       cwd: __dirname,
-      url: "http://127.0.0.1:4200",
+      url: "http://127.0.0.1:4215",
       reuseExistingServer: !process.env["CI"],
       timeout: 120_000,
     },

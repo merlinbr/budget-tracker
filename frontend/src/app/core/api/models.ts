@@ -78,6 +78,28 @@ export interface DashboardPeriod {
   month: number;
 }
 
+export interface Budget {
+  categoryId: number;
+  categoryName: string;
+  isArchived: boolean;
+  year: number;
+  month: number;
+  limitAmount: number;
+  spent: number;
+  remaining: number;
+  progress: number | null;
+}
+
+export interface BudgetWrite {
+  limitAmount: number;
+}
+
+export interface BudgetCopyRequest {
+  year: number;
+  month: number;
+  overwrite: boolean;
+}
+
 export interface DashboardSpending {
   categoryId: number;
   categoryName: string;
@@ -98,7 +120,7 @@ export interface DashboardTransaction {
 export interface DashboardResponse {
   period: DashboardPeriod;
   summary: { balance: number; income: number; expenses: number; net: number };
-  budgets: never[];
+  budgets: Budget[];
   spendingByCategory: DashboardSpending[];
   recentTransactions: DashboardTransaction[];
 }

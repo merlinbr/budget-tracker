@@ -519,6 +519,11 @@ def test_queries_share_one_snapshot_despite_concurrent_write(
         "accountId": account["id"], "categoryId": category["id"],
         "amount": -100, "description": "REWE", "transactionDate": "2026-09-07",
     })
+    budget_response = client.put(
+        f"/api/budgets/{category['id']}", params={"year": 2026, "month": 9},
+        json={"limitAmount": 1000}, headers=csrf_headers(),
+    )
+    assert budget_response.status_code == 200, budget_response.text
 
     writer_engine = create_engine(
         os.environ["DATABASE_URL"], connect_args={"check_same_thread": False}
@@ -558,8 +563,16 @@ def test_queries_share_one_snapshot_despite_concurrent_write(
         "categoryId": category["id"], "categoryName": "Food", "spent": 100,
     }]
     assert body["recentTransactions"][0]["amount"] == -100
+    assert body["budgets"] == [{
+        "categoryId": category["id"], "categoryName": "Food", "isArchived": False,
+        "year": 2026, "month": 9, "limitAmount": 1000,
+        "spent": 100, "remaining": 900, "progress": 0.1,
+    }]
 
     # The concurrent write really committed; a fresh request observes the new value.
     follow_up = dashboard(client, 2026, 9).json()
     assert follow_up["summary"]["expenses"] == 200
     assert follow_up["spendingByCategory"][0]["spent"] == 200
+    assert follow_up["budgets"] == [{
+        **body["budgets"][0], "spent": 200, "remaining": 800, "progress": 0.2,
+    }]

@@ -184,6 +184,50 @@ class Transaction(Base):
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
 
+
+class Budget(Base):
+    __tablename__ = "budgets"
+    __table_args__ = (
+        UniqueConstraint(
+            "household_id", "category_id", "year", "month",
+            name="uq_budgets_household_category_period",
+        ),
+        CheckConstraint(
+            "typeof(year) = 'integer' AND year BETWEEN 1 AND 9999",
+            name="ck_budgets_year",
+        ),
+        CheckConstraint(
+            "typeof(month) = 'integer' AND month BETWEEN 1 AND 12",
+            name="ck_budgets_month",
+        ),
+        CheckConstraint(
+            "typeof(limit_amount) = 'integer'", name="ck_budgets_limit_integer"
+        ),
+        CheckConstraint(
+            "limit_amount BETWEEN 0 AND 9007199254740991",
+            name="ck_budgets_limit_range",
+        ),
+        Index("ix_budgets_household_period", "household_id", "year", "month"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    household_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("households.id", ondelete="RESTRICT"), nullable=False
+    )
+    category_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("categories.id", ondelete="RESTRICT"), nullable=False
+    )
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    limit_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+
 class UserSession(Base):
     __tablename__ = "sessions"
     __table_args__ = (
