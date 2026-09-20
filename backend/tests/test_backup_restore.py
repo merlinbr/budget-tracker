@@ -378,6 +378,16 @@ def _load_backup_module():
     return module
 
 
+def _load_restore_module():
+    spec = importlib.util.spec_from_file_location(
+        "budget_restore_for_test", RESTORE_SCRIPT
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_backup_wall_clock_deadline_interrupts_copy(
     seeded, destinations, monkeypatch
 ):
@@ -717,7 +727,41 @@ def test_restore_corrupt_target_aborts_without_replacement(seeded, destinations,
     assert corrupt.read_bytes() == before, "corrupt target must be retained untouched"
 
 
-def test_restore_preservation_names_unique_same_second(seeded, destinations, tmp_path):
+def test_restore_staged_fsync_failure_keeps_target_sidecars(
+    seeded, destinations, tmp_path, monkeypatch
+):
+    """Preparation failure must not discard the existing target or sidecars."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target = tmp_path / "existing.db"
+    make_migrated_db_from_copy(seeded, target, extra_transactions=0)
+    before = target.read_bytes()
+    wal = Path(str(target) + "-wal")
+    shm = Path(str(target) + "-shm")
+    wal.write_bytes(b"wal-marker")
+    shm.write_bytes(b"shm-marker")
+
+    restore = _load_restore_module()
+    real_fsync = restore._fsync_file
+
+    def fail_staged_fsync(path: Path) -> None:
+        if Path(path).name == "staged.sqlite":
+            raise OSError("forced staged fsync failure")
+        real_fsync(path)
+
+    monkeypatch.setattr(restore, "_fsync_file", fail_staged_fsync)
+    assert restore.main([
+        "--backup", str(snap), "--database", str(target), "--confirm"
+    ]) == 1
+    assert target.read_bytes() == before
+    assert shm.exists()
+
+
+def test_restore_preservation_names_unique_same_second(
+    seeded, destinations, tmp_path, monkeypatch
+):
     """Two restores in one second into one directory never overwrite preserves."""
     result = run_script(BACKUP_SCRIPT, "--database", seeded,
                         "--destination", destinations, "--keep-days", "30")
@@ -727,13 +771,47 @@ def test_restore_preservation_names_unique_same_second(seeded, destinations, tmp
     target_b = tmp_path / "existing-b.db"
     make_migrated_db_from_copy(seeded, target_a, extra_transactions=0)
     make_migrated_db_from_copy(seeded, target_b, extra_transactions=0)
+
+    restore = _load_restore_module()
+    stamp = "20260920t120000z"
+    monkeypatch.setattr(restore, "_utc_stamp", lambda: stamp)
     for target in (target_a, target_b):
-        do_restore = run_script(RESTORE_SCRIPT, "--backup", snap,
-                                "--database", target, "--confirm")
-        assert do_restore.returncode == 0, do_restore.stderr
+        assert restore.main([
+            "--backup", str(snap), "--database", str(target), "--confirm"
+        ]) == 0
+
     pres = sorted(tmp_path.glob("budget-pre-restore-*.sqlite"))
-    assert len(pres) == 2, "same-second preserves must coexist, not overwrite"
-    assert len({p.name for p in pres}) == 2
+    assert {p.name for p in pres} == {
+        f"budget-pre-restore-{stamp}.sqlite",
+        f"budget-pre-restore-{stamp}-01.sqlite",
+    }
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink privileges; real-host POSIX check stays open")
+def test_restore_preservation_does_not_overwrite_dangling_path(
+    seeded, destinations, tmp_path, monkeypatch
+):
+    """A dangling preserve-name path is occupied and must not be replaced."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target = tmp_path / "existing.db"
+    make_migrated_db_from_copy(seeded, target, extra_transactions=0)
+
+    stamp = "20260920t120001z"
+    dangling = tmp_path / f"budget-pre-restore-{stamp}.sqlite"
+    dangling.symlink_to(tmp_path / "missing-preserve.sqlite")
+    restore = _load_restore_module()
+    monkeypatch.setattr(restore, "_utc_stamp", lambda: stamp)
+    assert restore.main([
+        "--backup", str(snap), "--database", str(target), "--confirm"
+    ]) == 0
+
+    assert dangling.is_symlink()
+    published = tmp_path / f"budget-pre-restore-{stamp}-01.sqlite"
+    assert published.is_file()
+    assert read_snapshot_counts(published)["transactions"] == 1
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX ownership/mode; real-host check stays open")
@@ -772,7 +850,10 @@ def test_restore_stages_privately_on_target_filesystem(seeded, destinations, tmp
         while _t.time() < deadline:
             dirs = list(target_dir.glob(".budget-restore-*"))
             if dirs:
-                seen["dir"] = dirs[0]
+                staging = dirs[0]
+                seen["dir"] = staging
+                if os.name != "nt":
+                    seen["mode"] = stat.S_IMODE(os.stat(staging).st_mode)
                 return
             _t.sleep(0.01)
 
@@ -784,5 +865,5 @@ def test_restore_stages_privately_on_target_filesystem(seeded, destinations, tmp
     assert do_restore.returncode == 0, do_restore.stderr
     assert "dir" in seen, "restore must stage beside the target, not in system temp"
     if os.name != "nt":
-        assert stat.S_IMODE(os.stat(seen["dir"]).st_mode) == 0o700
+        assert seen["mode"] == 0o700
     assert not list(target_dir.glob(".budget-restore-*")), "no staging leftovers"

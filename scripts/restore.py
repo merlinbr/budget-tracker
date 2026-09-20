@@ -70,12 +70,23 @@ def _reject_unsafe_paths(backup_arg: Path, database_arg: Path) -> tuple[Path, Pa
 
 
 def _unique_preserve_name(directory: Path, stamp: str) -> Path:
-    target = directory / f"budget-pre-restore-{stamp}.sqlite"
     serial = 0
-    while target.exists():
-        serial += 1
-        target = directory / f"budget-pre-restore-{stamp}-{serial:02x}.sqlite"
-    return target
+    while True:
+        suffix = f"-{serial:02x}" if serial else ""
+        target = directory / f"budget-pre-restore-{stamp}{suffix}.sqlite"
+        try:
+            fd = os.open(
+                target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+            )
+        except FileExistsError:
+            serial += 1
+            continue
+        try:
+            os.close(fd)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        return target
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -144,14 +155,17 @@ def main(argv: list[str] | None = None) -> int:
         # Preserve the existing target before touching it. A corrupt target
         # aborts the restore: retained untouched for manual recovery.
         published: Path | None = None
+        published_ready = False
         target_stat: os.stat_result | None = None
         if database.exists():
             target_stat = os.stat(database)
-            published = _unique_preserve_name(database.parent, _utc_stamp())
             stamp_dir = Path(tempfile.mkdtemp(
                 prefix=".budget-pre-restore-", dir=database.parent
             ))
             try:
+                published = _unique_preserve_name(
+                    database.parent, _utc_stamp()
+                )
                 create_snapshot(database, stamp_dir)
                 pres = list(stamp_dir.glob("budget-*.sqlite"))
                 if len(pres) != 1:
@@ -161,16 +175,13 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 _fsync_file(pres[0])
                 os.replace(pres[0], published)
+                published_ready = True
             finally:
                 shutil.rmtree(stamp_dir, ignore_errors=True)
+                if published is not None and not published_ready:
+                    published.unlink(missing_ok=True)
 
-        # Target survives until here; remove obsolete sidecars, then swap.
-        if database.exists():
-            Path(str(database) + "-wal").unlink(missing_ok=True)
-            Path(str(database) + "-shm").unlink(missing_ok=True)
-
-        # Preserve the previous target's ownership/mode (POSIX); default 0600
-        # for new targets. Applied to the staged file before publication.
+        # Prepare the staged file fully before touching target sidecars.
         if os.name != "nt":
             if target_stat is not None:
                 os.chown(staged, target_stat.st_uid, target_stat.st_gid)
@@ -179,6 +190,11 @@ def main(argv: list[str] | None = None) -> int:
                 os.chmod(staged, 0o600)
 
         _fsync_file(staged)
+
+        # Remove obsolete sidecars immediately before the atomic swap.
+        if database.exists():
+            Path(str(database) + "-wal").unlink(missing_ok=True)
+            Path(str(database) + "-shm").unlink(missing_ok=True)
         os.replace(staged, database)
         staged = None  # ownership moved into the target
         _fsync_dir(database.parent)
