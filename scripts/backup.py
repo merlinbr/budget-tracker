@@ -46,7 +46,12 @@ def _verify_snapshot(conn: sqlite3.Connection, label: str) -> None:
     bad = [row[0] for row in conn.execute("PRAGMA integrity_check").fetchall()]
     if bad != ["ok"]:
         raise RuntimeError(f"{label} failed integrity_check: {bad}")
-    rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+    try:
+        rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+    except sqlite3.OperationalError as exc:
+        raise RuntimeError(
+            f"{label} must be migrated to 0005_budgets, found missing"
+        ) from exc
     if rev is None or rev[0] != "0005_budgets":
         have = rev[0] if rev else "missing"
         raise RuntimeError(f"{label} must be migrated to 0005_budgets, found {have}")
@@ -124,13 +129,17 @@ def create_snapshot(database: Path, destination: Path) -> None:
         try:
             deadline = time.monotonic() + BACKUP_DEADLINE_SECONDS
 
-            def _progress() -> int:
-                return -1 if time.monotonic() >= deadline else 0
+            def _progress(status: int, remaining: int, total: int) -> None:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"backup exceeded {BACKUP_DEADLINE_SECONDS}-second deadline"
+                    )
 
-            src.set_progress_handler(_progress, 1)
             db_conn = sqlite3.connect(tmp_path)
             try:
-                src.backup(db_conn)
+                src.backup(
+                    db_conn, pages=1, progress=_progress, sleep=0.05
+                )
                 db_conn.commit()
             finally:
                 db_conn.close()

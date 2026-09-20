@@ -7,6 +7,7 @@ same alembic pattern used by conftest.test_app.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import socket
 import sqlite3
@@ -365,6 +366,32 @@ def test_backup_rejects_missing_required_table(seeded, destinations):
                         "--destination", destinations, "--keep-days", "30")
     assert result.returncode != 0
     assert budget_snapshots(destinations) == []
+
+def _load_backup_module():
+    spec = importlib.util.spec_from_file_location(
+        "budget_backup_for_test", BACKUP_SCRIPT
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_backup_wall_clock_deadline_interrupts_copy(
+    seeded, destinations, monkeypatch
+):
+    backup = _load_backup_module()
+    clock = iter((0.0, backup.BACKUP_DEADLINE_SECONDS + 1.0))
+
+    class FakeTime:
+        @staticmethod
+        def monotonic() -> float:
+            return next(clock)
+
+    monkeypatch.setattr(backup, "time", FakeTime)
+    with pytest.raises(TimeoutError, match="deadline"):
+        backup.create_snapshot(seeded, destinations)
+    assert list(destinations.iterdir()) == []
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink privileges; real-host POSIX check stays open")
