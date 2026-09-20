@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import stat
 import socket
 import sqlite3
 import subprocess
@@ -640,14 +641,148 @@ def test_backup_restore_full_drill(seeded, destinations, tmp_path):
     assert result.returncode == 0, result.stderr
     (snap,) = budget_snapshots(destinations)
     target = tmp_path / "rescued.db"
-    corrupt_target = tmp_path / "corrupt-then-restored.db"
-    corrupt_target.write_bytes(b"not-a-db-but-it-was")
     do_restore = run_script(RESTORE_SCRIPT, "--backup", snap,
-                            "--database", corrupt_target, "--confirm")
+                            "--database", target, "--confirm")
     assert do_restore.returncode == 0, do_restore.stderr
-    conn = sqlite3.connect(corrupt_target)
+    conn = sqlite3.connect(target)
     try:
         assert conn.execute("SELECT count(*) FROM transactions"
                             ).fetchone()[0] == 1
     finally:
         conn.close()
+
+
+def test_restore_rejects_identical_paths(seeded, destinations, tmp_path):
+    """Reproduced blocker: same file for --backup and --database."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    before = snap.read_bytes()
+    result = run_script(RESTORE_SCRIPT, "--backup", snap,
+                        "--database", snap, "--confirm")
+    assert result.returncode != 0
+    assert "same" in result.stderr.lower()
+    assert snap.read_bytes() == before, "source snapshot bytes must be preserved"
+    conn = sqlite3.connect(f"file:{snap}?mode=ro", uri=True)
+    try:
+        assert conn.execute("SELECT count(*) FROM sessions").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_restore_rejects_aliased_paths(seeded, destinations, tmp_path):
+    """Different argument strings resolving to one file (relative path alias)."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    before = snap.read_bytes()
+    alias = snap.parent / ".." / snap.parent.name / snap.name
+    result = run_script(RESTORE_SCRIPT, "--backup", snap,
+                        "--database", alias, "--confirm")
+    assert result.returncode != 0
+    assert snap.read_bytes() == before
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink privileges; real-host POSIX check stays open")
+def test_restore_rejects_symlink_target(seeded, destinations, tmp_path):
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    real = tmp_path / "real-target.db"
+    real.write_bytes(b"placeholder")
+    link = tmp_path / "linked-target.db"
+    link.symlink_to(real)
+    result = run_script(RESTORE_SCRIPT, "--backup", snap,
+                        "--database", link, "--confirm")
+    assert result.returncode != 0
+    assert "symlink" in result.stderr.lower()
+    assert link.is_symlink() and real.read_bytes() == b"placeholder"
+
+
+def test_restore_corrupt_target_aborts_without_replacement(seeded, destinations, tmp_path):
+    """Approved contract: corrupt target -> safe abort, never raw-copy/replace."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    corrupt = tmp_path / "corrupt.db"
+    corrupt.write_bytes(b"SQLite format 3\x00broken-payload" * 4)
+    before = corrupt.read_bytes()
+    result = run_script(RESTORE_SCRIPT, "--backup", snap,
+                        "--database", corrupt, "--confirm")
+    assert result.returncode != 0
+    assert corrupt.read_bytes() == before, "corrupt target must be retained untouched"
+
+
+def test_restore_preservation_names_unique_same_second(seeded, destinations, tmp_path):
+    """Two restores in one second into one directory never overwrite preserves."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target_a = tmp_path / "existing-a.db"
+    target_b = tmp_path / "existing-b.db"
+    make_migrated_db_from_copy(seeded, target_a, extra_transactions=0)
+    make_migrated_db_from_copy(seeded, target_b, extra_transactions=0)
+    for target in (target_a, target_b):
+        do_restore = run_script(RESTORE_SCRIPT, "--backup", snap,
+                                "--database", target, "--confirm")
+        assert do_restore.returncode == 0, do_restore.stderr
+    pres = sorted(tmp_path.glob("budget-pre-restore-*.sqlite"))
+    assert len(pres) == 2, "same-second preserves must coexist, not overwrite"
+    assert len({p.name for p in pres}) == 2
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX ownership/mode; real-host check stays open")
+def test_restore_preserves_target_mode_and_owner(seeded, destinations, tmp_path):
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target = tmp_path / "owned.db"
+    make_migrated_db_from_copy(seeded, target, extra_transactions=0)
+    os.chmod(target, 0o640)
+    st_before = os.stat(target)
+    do_restore = run_script(RESTORE_SCRIPT, "--backup", snap,
+                            "--database", target, "--confirm")
+    assert do_restore.returncode == 0, do_restore.stderr
+    st_after = os.stat(target)
+    assert stat.S_IMODE(st_after.st_mode) == 0o640
+    assert (st_after.st_uid, st_after.st_gid) == (st_before.st_uid, st_before.st_gid)
+
+
+def test_restore_stages_privately_on_target_filesystem(seeded, destinations, tmp_path):
+    """Staging dir lives beside the target (same filesystem), mode 0o700."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target_dir = tmp_path / "target-fs"
+    target_dir.mkdir()
+    target = target_dir / "budget.db"
+
+    seen: dict[str, object] = {}
+
+    def watch_staging() -> None:
+        import time as _t
+        deadline = _t.time() + 15
+        while _t.time() < deadline:
+            dirs = list(target_dir.glob(".budget-restore-*"))
+            if dirs:
+                seen["dir"] = dirs[0]
+                return
+            _t.sleep(0.01)
+
+    watcher = threading.Thread(target=watch_staging)
+    watcher.start()
+    do_restore = run_script(RESTORE_SCRIPT, "--backup", snap,
+                            "--database", target, "--confirm")
+    watcher.join()
+    assert do_restore.returncode == 0, do_restore.stderr
+    assert "dir" in seen, "restore must stage beside the target, not in system temp"
+    if os.name != "nt":
+        assert stat.S_IMODE(os.stat(seen["dir"]).st_mode) == 0o700
+    assert not list(target_dir.glob(".budget-restore-*")), "no staging leftovers"

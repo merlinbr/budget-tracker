@@ -6,11 +6,15 @@ Safety properties (contract):
 - refuses without --confirm
 - refuses snapshots whose alembic revision is not 0005_budgets
 - refuses if the staged copy fails integrity/foreign-key checks
+- refuses symlink and source/target alias paths before modification
 - never edits the source snapshot in place
 - DELETEs all sessions rows in the staged copy (fresh logins after restore)
-- snapshots the existing target first (budget-pre-restore-<UTC>.sqlite,
-  retention disabled)
+- stages privately beside the target with mode 0700
+- snapshots the existing target first, preserving ownership/mode on replacement
+- corrupt existing targets abort without replacement
+- pre-restore snapshots have unique names
 - failures leave the original target untouched
+- fsyncs the staged file and target directory after publication
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import argparse
 import os
 import shutil
 import sqlite3
+import stat
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -26,7 +31,7 @@ from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPT_DIR))
-from backup import create_snapshot
+from backup import _fsync_dir, _fsync_file, _verify_snapshot, create_snapshot
 
 HEAD_REVISION = "0005_budgets"
 
@@ -44,6 +49,33 @@ def _query_head_revision(db: Path) -> str | None:
     finally:
         conn.close()
     return row[0] if row else None
+
+
+def _reject_unsafe_paths(backup_arg: Path, database_arg: Path) -> tuple[Path, Path]:
+    """Resolve args, refusing symlinks, aliases and identical source/target."""
+    for label, path in (("--backup", backup_arg), ("--database", database_arg)):
+        if path.is_symlink():
+            raise RuntimeError(f"{label} must not be a symlink: {path}")
+    backup = backup_arg.resolve()
+    database = database_arg.resolve()
+    if backup == database:
+        raise RuntimeError(
+            "--backup and --database must not be the same file"
+        )
+    if backup.is_file() and database.exists() and os.path.samefile(backup, database):
+        raise RuntimeError(
+            "--backup and --database resolve to the same file"
+        )
+    return backup, database
+
+
+def _unique_preserve_name(directory: Path, stamp: str) -> Path:
+    target = directory / f"budget-pre-restore-{stamp}.sqlite"
+    serial = 0
+    while target.exists():
+        serial += 1
+        target = directory / f"budget-pre-restore-{stamp}-{serial:02x}.sqlite"
+    return target
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -67,10 +99,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    backup = Path(args.backup).resolve()
-    database = Path(args.database).resolve()
     staged: Path | None = None
+    staging_dir: Path | None = None
     try:
+        backup, database = _reject_unsafe_paths(args.backup, args.database)
         if not backup.is_file():
             raise FileNotFoundError(f"backup not found: {backup}")
 
@@ -82,12 +114,13 @@ def main(argv: list[str] | None = None) -> int:
                 f" need {HEAD_REVISION!r} (run alembic upgrade head)"
             )
 
-        # Stage a fresh standalone copy from the backup; never edit it.
-        staging_dir = Path(tempfile.gettempdir()) / "budget-tracker-restores"
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        staged = staging_dir / (
-            f".budget-restore-{os.getpid()}-{_utc_stamp()}.sqlite"
-        )
+        # Stage privately on the target filesystem: same-volume os.replace,
+        # 0700 from creation (mkdtemp), nothing in shared system temp.
+        staging_dir = Path(tempfile.mkdtemp(
+            prefix=".budget-restore-", dir=database.parent
+        ))
+        staged = staging_dir / "staged.sqlite"
+
         src = sqlite3.connect(f"file:{backup}?mode=ro", uri=True)
         try:
             dst = sqlite3.connect(f"file:{staged}?mode=rwc", uri=True)
@@ -99,50 +132,35 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             src.close()
 
-        # Sessions ride the snapshot but belong to the old deployment; drop
-        # every row so nobody rides an old session after the restore.
+        # Sessions ride the snapshot but belong to the old deployment.
         conn = sqlite3.connect(staged)
         try:
             conn.execute("DELETE FROM sessions")
             conn.commit()
-            bad = [r[0] for r in conn.execute("PRAGMA integrity_check").fetchall()]
-            if bad != ["ok"]:
-                raise RuntimeError(f"staged copy failed integrity_check: {bad}")
-            fk = conn.execute("PRAGMA foreign_key_check").fetchall()
-            if fk:
-                raise RuntimeError(
-                    f"staged copy failed foreign_key_check on {len(fk)} rows"
-                )
-            rev = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-            if rev is None or rev[0] != HEAD_REVISION:
-                raise RuntimeError("staged copy revision mismatch")
+            _verify_snapshot(conn, "staged copy")
         finally:
             conn.close()
 
-        # Preserve the existing target before touching it. A damaged target
-        # can't be snapshotted (create_snapshot validates); fall back to a
-        # plain byte-level copy so the damaged file is still kept.
+        # Preserve the existing target before touching it. A corrupt target
+        # aborts the restore: retained untouched for manual recovery.
         published: Path | None = None
+        target_stat: os.stat_result | None = None
         if database.exists():
-            published = database.parent / (
-                f"budget-pre-restore-{_utc_stamp()}.sqlite"
-            )
-            stamp_dir = Path(
-                tempfile.mkdtemp(prefix="budget-pre-restore-")
-            )
+            target_stat = os.stat(database)
+            published = _unique_preserve_name(database.parent, _utc_stamp())
+            stamp_dir = Path(tempfile.mkdtemp(
+                prefix=".budget-pre-restore-", dir=database.parent
+            ))
             try:
-                try:
-                    create_snapshot(database, stamp_dir)
-                    pres = list(stamp_dir.glob("budget-*.sqlite"))
-                    if len(pres) != 1:
-                        raise RuntimeError(
-                            "pre-restore snapshot: expected exactly 1"
-                            f" published snapshot, found {len(pres)}"
-                        )
-                    os.replace(pres[0], published)
-                except sqlite3.DatabaseError:
-                    # Damaged target: keep the bytes as-is.
-                    shutil.copyfile(database, published)
+                create_snapshot(database, stamp_dir)
+                pres = list(stamp_dir.glob("budget-*.sqlite"))
+                if len(pres) != 1:
+                    raise RuntimeError(
+                        "pre-restore snapshot: expected exactly 1"
+                        f" published snapshot, found {len(pres)}"
+                    )
+                _fsync_file(pres[0])
+                os.replace(pres[0], published)
             finally:
                 shutil.rmtree(stamp_dir, ignore_errors=True)
 
@@ -151,10 +169,19 @@ def main(argv: list[str] | None = None) -> int:
             Path(str(database) + "-wal").unlink(missing_ok=True)
             Path(str(database) + "-shm").unlink(missing_ok=True)
 
+        # Preserve the previous target's ownership/mode (POSIX); default 0600
+        # for new targets. Applied to the staged file before publication.
+        if os.name != "nt":
+            if target_stat is not None:
+                os.chown(staged, target_stat.st_uid, target_stat.st_gid)
+                os.chmod(staged, stat.S_IMODE(target_stat.st_mode))
+            else:
+                os.chmod(staged, 0o600)
+
+        _fsync_file(staged)
         os.replace(staged, database)
         staged = None  # ownership moved into the target
-        if os.name != "nt":
-            os.chmod(database, 0o600)
+        _fsync_dir(database.parent)
 
         notes = []
         if published is not None:
@@ -169,6 +196,8 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if staged is not None:
             staged.unlink(missing_ok=True)
+        if staging_dir is not None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
