@@ -11,6 +11,7 @@
 }
 
 .login-card {
+  box-sizing: border-box;
   width: min(100%, 28rem);
   padding: clamp(1.5rem, 5vw, 3rem);
   border: 1px solid #d7deeb;

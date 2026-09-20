@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-**Milestone 5 — Monthly Budgets (implemented; user review required before M6)**
+**Milestone 6 — Settings, Export and Operations (implementation and disposable recovery verified; release candidate, deployment gates pending)**
 
-Milestones 1–4 remain completed and verified under their own gates. Milestone 5 adds household-scoped monthly category budgets: Alembic revision `0005_budgets`, authenticated `GET/PUT/DELETE /api/budgets` plus atomic copy-previous, translated into the dashboard `budgets` section and a guarded Angular `/budgets` page at both widths. All focused and final integrated verification gates passed (backend **211**, frontend **52**/build, Playwright **12**), including a disposable DB migration cycle proving 0004↔0005 preserves M4 data and an actual PUT limit 60000 → remaining 51528. Browser list loading/failure visual rendering (M3/M4 style) and pixel-level visual review remain assertable-but-not-human-reviewed; M5 screenshots/automation assertions passed without human visual inspection.
+Milestones 1–5 remain completed and verified under their own gates. M6 adds protected profile/password/household settings, safe household-scoped CSV export, host-operated SQLite backup/restore, and production-shaped Compose hardening. The repository suites, real-backend browser workflows, disposable migration/recovery drill, HTTPS headers and desktop/phone visual inspection passed. Actual server/device/DNS/firewall/Tailscale/Emby/scheduler evidence remains an external release gate.
 
 ## Completed
 
@@ -26,6 +26,10 @@ Milestones 1–4 remain completed and verified under their own gates. Milestone 
 - Milestone 5 (monthly budgets): Alembic revision `0005_budgets` creates a household-scoped `budgets` table with unique `(household_id, category_id, year, month)`, year/month/limit check constraints, and an index on `(household_id, year, month)`.
 - `GET/PUT/DELETE /api/budgets` and `POST /api/budgets/copy-previous` run under `require_household`, validate before committing inside `BEGIN IMMEDIATE`, roll back atomically on any error (including SQLite aggregate overflow → 409), and expose exact-cent limit/spent/remaining/progress.
 - Angular `/budgets` renders budget rows for the selected month, supports set/edit/remove and copy-previous with a replacement confirmation, and reuses the dashboard month navigation; the dashboard `budgets` section now shows real budgets instead of an empty array.
+- M6 settings/API: profile display-name update, read-only household members, corrected wrong-current-password `422` field error, session-revoking password success, guarded responsive Settings page, and real Blob CSV download with date/account/category filters.
+- M6 operations: stdlib WAL-safe `scripts/backup.py` and offline `scripts/restore.py`, revision/integrity/foreign-key validation, 30-calendar-day retention, immutable source snapshots, pre-restore preservation, session deletion, and operator guides.
+- M6 production hardening: strict production config validation, database-backed health probe, disabled production OpenAPI/docs/ReDoc including SPA fall-through, API no-store policy, static CSP/security headers, one-worker/no-proxy-header backend, Caddy internal TLS, and no published backend port.
+- M6 browser/recovery acceptance: dedicated settings and full-household identities, 1280×900 and 390×844 real-backend workflows, CSV oracle, logout/API denial, populated/over-budget settings visual checks, and a disposable primary/recovery Compose drill.
 
 ## Verification
 
@@ -49,6 +53,9 @@ Milestones 1–4 remain completed and verified under their own gates. Milestone 
 - M5 final integrated checks: `cd backend && python -m pytest -p no:warnings` — **211 passed**; `cd frontend && npm test -- --watch=false` — **12 test files / 52 tests passed**; `npm run build` — **passed**; `npx playwright test` — **12 passed** at `1280×900` and `390×844`.
 - M5 disposable migration cycle: seeded M4 rows on `0004` (initial balance `100000`, September expense `-8472`) survived `0004 → 0005` unchanged; through the M5 app the seeded identity logged in, `GET /api/dashboard` returned expenses `8472`/balance `91528`/empty `budgets`, and `PUT /api/budgets/1` limit `60000` returned `remaining 51528`; downgrade to `0004` removed `budgets` and preserved every M4 row; re-upgrade re-reached head with empty `budgets` and unchanged dashboard totals; a separate empty database upgraded to head `0005_budgets`.
 - Focused M5 security review: no confirmed vulnerability in budget household predicates, CSRF coverage, atomicity/validate-before-commit ordering, integer-cent handling, overflow scoping, or financial logging (`backend/app/budgets.py` has no logger/print calls; the shared error logger records only method and path). This was a focused source review, not external penetration testing.
+- M6 focused and integrated verification: `cd backend && python -m pytest` — **286 passed, 244 warnings**; `cd frontend && npm test -- --watch=false` — **13 test files / 71 tests passed**; `npm run build` — **passed**; `npx playwright test` — **16 passed** at both widths with `workers: 1` to avoid cross-file writes racing in the shared disposable SQLite database.
+- M6 disposable Compose/recovery evidence: `APP_ENV=production` primary and recovery projects on `lvh.me` reached healthy Caddy HTTPS; API health returned `200`, unknown API and `/openapi.json`/`/docs`/`/redoc` returned `404`, headers included private/no-store/CSP/nosniff policy, backup captured the live two-account database, restore reached revision `0005_budgets` with `sessions=0`, old cookies returned `401`, fresh recovery login read restored values, and a new transaction returned `201`.
+- M6 visual/security review: real Chrome inspection covered desktop/phone login, dashboard, accounts, categories, transactions, budgets including readable over-budget state, and settings including populated data and errors. The mobile invalid-login regression now has no document overflow. Source/disposable review found no confirmed M6 vulnerability; this is not external penetration testing.
 
 The development Compose environment uses Caddy's internal CA; clients must trust
 that CA or use an explicit development-only certificate bypass.
@@ -61,13 +68,9 @@ that CA or use an explicit development-only certificate bypass.
 - M3 browser loading/failure visual rendering remains unverified; no API mocks/intercepts or unsafe request replay was used.
 - Focused M4 review found no confirmed vulnerability in the dashboard household predicates, joined account/category name lookups, integer-cent precision, calendar bounds, request cancellation, 401 cleanup, or financial logging. `backend/app/dashboard.py` has no logger/print calls; the shared logger records only HTTP method and URL path. This was a focused source review, not external penetration testing.
 - Focused M5 review found no confirmed vulnerability in budget household predicates (`require_household` on every route; `household_id` present in every query and joined category lookup), CSRF coverage (`csrf_guard` is a global FastAPI dependency, so all three budget write routes are covered), atomic `BEGIN IMMEDIATE` writes that validate responses before commit and roll back on any exception, or financial logging (`backend/app/budgets.py` has no logger/print calls). This was a focused source review, not external penetration testing.
-- Deferred defense-in-depth: explicit private/no-store headers for financial GETs, CSP/HSTS, full UUID E2E suffixes, and shared/multi-worker limiter operation. These have no demonstrated M2/M3 exploit in the current deployment.
+- M6 security review found no confirmed vulnerability in settings/member household scope, password-change/session revocation, CSV query scoping and spreadsheet neutralization, backup/restore session removal, production host/origin validation, API cache policy, CSP/security headers, or backend port exposure. This was a focused source and disposable-environment review, not external penetration testing.
 
-Residual boundary: the limiter is intentionally in-memory and single-worker. Behind
-Caddy, clients initially share the socket-IP bucket because arbitrary forwarded
-headers are not trusted. Production LAN/Tailscale reachability, firewall rules,
-backups, restore, and multi-worker/shared-limiter operation remain unverified later
-release work.
+Residual release boundary: the limiter remains intentionally in-memory and single-worker; behind Caddy, clients initially share the socket-IP bucket because arbitrary forwarded headers are not trusted. Real LAN/Tailscale reachability, trusted client CA installation, DNS/hostname validation, HSTS decision, firewall/IPv4/IPv6 denial, Emby-only denial, scheduler/permissions, and production restore remain unverified.
 
 ## Milestone checklist
 
@@ -78,8 +81,8 @@ release work.
 - [x] M3 / Task 3.1 — Exact-cent transactions and filtered history (focused browser/migration/security gates and final integrated checks passed; browser loading/failure visual rendering remains unverified; user review before M4)
 - [x] M4 / Task 4.1 — Selected-month dashboard (focused backend/frontend/browser gates and final integrated checks passed; screenshots captured with layout assertions, pixel-level visual review not performed; user review before M5)
 - [x] M5 / Task 5.1 — Monthly budgets (implemented; focused backend/frontend/browser gates, migration cycle, and final integrated checks passed; user review required before M6)
-- [ ] M6 / Task 6.1 — Settings and CSV export
-- [ ] M6 / Task 6.2 — Deployment, backups, restore, and network boundary
-- [ ] M6 / Task 6.3 — Complete MVP acceptance evidence
+- [x] M6 / Task 6.1 — Settings and CSV export (API, UI, session semantics, accessibility, filters, and real browser download verified)
+- [x] M6 / Task 6.2 — Deployment, backups, restore, and network boundary (production-shaped Compose, headers/CSP, WAL backup, offline restore, and recovery session denial verified; actual network boundary remains open)
+- [x] M6 / Task 6.3 — Complete MVP acceptance evidence (full suites, full-household workflow, migration/recovery proof, visual inspection, and release evidence recorded)
 
-Final integrated checks pass. Request user review of verified M5 before starting Milestone 6 — settings and CSV export. Do not claim the full MVP or production readiness.
+Application and disposable recovery verification are complete. Release classification is **release candidate with deployment gates pending**; stop for user review before production rollout or publication. Do not claim the MVP accepted or production readiness until the real-host checklist passes.

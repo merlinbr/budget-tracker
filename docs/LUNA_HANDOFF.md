@@ -1,12 +1,24 @@
-# Luna — Milestone 5 Monthly Budgets Handoff
+# Luna — Milestone 6 Settings, Export and Operations Handoff
 
 ## Current Assignment
 
-**Milestone 5 — Monthly Budgets is implemented and verified.** Read `docs/LUNA_M5_HANDOFF.md`, then the complete `docs/superpowers/plans/2026-09-14-monthly-budgets.md`. All three M5 tasks and their verification gates are complete; the verified evidence is recorded in `README.md`, `state.md`, and the M5 sections below. Stop before M6 settings/export/operations and request user review — M5 remains implemented-subject-to-review, and this handoff still does not authorize M6 work, pushes, or deployment.
+**Milestone 6 — Settings, Export and Operations is implemented and verified through repository and disposable-recovery gates.** The current release classification is **release candidate with deployment gates pending**. The user initiated implementation after the approved plan; no commit, push, deployment, network-policy change or real-data restoration is authorized by this work.
 
-All M5 work is committed in a single milestone commit (`feat: implement Milestone 5 monthly budgets`), authorized by the user's explicit instruction during the implementation session. Your working tree should be clean at that boundary; any further edits continue to require separate authorization for commits.
+M1–M5 evidence remains preserved below and in `README.md` / `state.md`. The M6 implementation is uncommitted working-tree work; preserve intervening user changes and review the complete diff before any publication.
 
-The material below preserves historical M4/M3/M2 completion evidence, not the current assignment. Earlier instructions to stop before M5 and keep dashboard `budgets` empty describe the historical M4 boundary; M5 supersedes them and fills that section with real budgets.
+All reachable application, recovery, production-shaped Compose, full-suite, browser, and visual checks passed. Actual LAN/Tailscale/Emby/firewall/DNS/HSTS/scheduler and real-host recovery checks remain mandatory before an MVP-accepted or production-ready claim.
+
+## M6 Completion Evidence
+
+- **6.1 Settings/export:** `backend/app/settings.py` and `backend/app/export.py` provide household-scoped profile/member contracts and filtered spreadsheet-safe CSV. Wrong current passwords return `422` field validation without revoking the session; successful changes revoke every session. The guarded Angular `/settings` page covers profile, password, read-only household, CSV filters/download, and honest backup guidance.
+- **6.2 Recovery:** root `scripts/backup.py` and `scripts/restore.py` use stdlib SQLite backup/restore, validate revision/integrity/foreign keys, retain only script-owned snapshots, preserve a pre-restore target, remove staged sessions, and publish atomically. `docs/BACKUP_RESTORE.md` documents offline operation, scheduler choices, permissions, and the separate recovery stack.
+- **6.2 Production shape:** strict production settings, database-backed health, no published backend port, one worker/no proxy-header trust, static CSP/security headers, API no-store, Caddy internal TLS, and explicit 404 protection for `/openapi.json`, `/docs`, `/redoc`, and unknown API paths are implemented and documented in `docs/DEPLOYMENT.md`.
+- **6.3 integrated proof:** `cd backend && python -m pytest` — **286 passed, 244 warnings**; `cd frontend && npm test -- --watch=false` — **13 files / 71 tests passed**; `npm run build` — **passed**; `npx playwright test` — **16 passed** at `1280×900` and `390×844` with one worker for the shared disposable SQLite database.
+- Disposable production-shaped primary/recovery Compose on `lvh.me` reached healthy HTTPS; the live backup included two accounts, restore reached `0005_budgets` with `sessions=0`, the old cookie returned `401`, fresh recovery login read the restored dashboard, and a post-recovery transaction returned `201`.
+- Real Chrome inspection covered login, dashboard, accounts, categories, transactions, budgets (including readable over-budget state), and settings at desktop and phone widths. The mobile invalid-login overflow was fixed and regressed.
+- Focused M6 source/security review found no confirmed vulnerability; this is not external penetration testing. The full release gate remains open for actual server/device/network evidence.
+
+Stop for user review before production rollout or publication. Do not treat disposable Compose or local browser evidence as LAN/Tailscale/Emby/firewall acceptance.
 
 ## M5 Completion Evidence
 

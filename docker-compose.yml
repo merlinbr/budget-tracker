@@ -9,11 +9,15 @@ services:
       SESSION_MAX_AGE_DAYS: ${SESSION_MAX_AGE_DAYS:-30}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Set ALLOWED_ORIGINS in .env}
       TRUSTED_HOSTS: ${TRUSTED_HOSTS:?Set TRUSTED_HOSTS in .env}
-      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      SECURE_COOKIES: ${SECURE_COOKIES:?Set SECURE_COOKIES in .env}
     volumes:
       - ./data:/app/data
     expose:
       - "8000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     command:
       - sh
       - -c
@@ -23,7 +27,7 @@ services:
         - CMD
         - python
         - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)
+        - import os,urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/api/health',headers={'Host':os.environ['TRUSTED_HOSTS'].split(',')[0].strip()}),timeout=2)
       interval: 5s
       timeout: 3s
       retries: 12

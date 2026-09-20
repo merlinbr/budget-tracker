@@ -3,6 +3,11 @@
     <p class="eyebrow">Private household finance</p>
     <h1 id="login-title">Sign in to Budget Tracker</h1>
     <p class="intro">Use your household account to continue.</p>
+    @if (passwordChanged()) {
+      <div class="message success" role="status" aria-live="polite">
+        Password changed. Sign in with your new password.
+      </div>
+    }
 
     @if (auth.restoration() === "error") {
       <div class="message error" role="alert">

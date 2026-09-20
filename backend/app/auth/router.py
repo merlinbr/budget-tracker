@@ -211,9 +211,10 @@ def change_password(
     if not verify_password(user.password_hash, payload.current_password):
         db.rollback()
         raise APIError(
-            401,
-            "INVALID_CREDENTIALS",
-            "Current password is incorrect.",
+            422,
+            "VALIDATION_ERROR",
+            "The request could not be processed.",
+            {"currentPassword": "Current password is incorrect."},
         )
 
     user.password_hash = hash_password(payload.new_password)

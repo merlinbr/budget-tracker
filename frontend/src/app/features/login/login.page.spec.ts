@@ -67,4 +67,36 @@ describe("LoginPage", () => {
 
     expect(login).toHaveBeenCalledWith("user", password);
   });
+
+  it("shows the password-changed notice once and clears it from history state", async () => {
+    history.replaceState({ passwordChanged: true }, "");
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [LoginPage],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+    fixture = TestBed.createComponent(LoginPage);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.passwordChanged()).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      "Password changed. Sign in with your new password.",
+    );
+    // The flag was consumed: history no longer carries it.
+    const cleared = history.state && typeof history.state === "object" && "passwordChanged" in history.state
+      ? history.state.passwordChanged
+      : undefined;
+    expect(cleared).toBeFalsy();
+  });
+
+  it("shows no password-changed notice on a normal visit", async () => {
+    history.replaceState({}, "");
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [LoginPage],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+    fixture = TestBed.createComponent(LoginPage);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.passwordChanged()).toBe(false);
+  });
 });

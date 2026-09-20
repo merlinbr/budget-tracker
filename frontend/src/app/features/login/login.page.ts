@@ -39,6 +39,7 @@ export class LoginPage {
   readonly isRetrying = signal(false);
   readonly submitError = signal<string | null>(null);
   readonly restoreError = signal<string | null>(null);
+  readonly passwordChanged = signal(this.consumePasswordChangedNotice());
 
   submit(): void {
     this.submitError.set(null);
@@ -103,6 +104,17 @@ export class LoginPage {
       return "Password must be at least 12 characters.";
     }
     return null;
+  }
+
+  // Reads the fixed non-secret passwordChanged flag from history state once and
+  // replaces the history entry so reload/back never replay the notice.
+  private consumePasswordChangedNotice(): boolean {
+    const state = history.state as { passwordChanged?: boolean } | null;
+    if (state?.passwordChanged !== true) {
+      return false;
+    }
+    history.replaceState({}, "");
+    return true;
   }
 
   private loginError(error: unknown): string {

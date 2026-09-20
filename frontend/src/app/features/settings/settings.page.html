@@ -1,0 +1,167 @@
+<section class="page" aria-labelledby="settings-title">
+  <h2 id="settings-title">Settings</h2>
+
+  <section class="card" aria-labelledby="profile-title">
+    <h3 id="profile-title">Profile</h3>
+    <form id="profile-form" [formGroup]="profileForm" (ngSubmit)="saveProfile()" [attr.aria-busy]="savingProfile()">
+      <div class="field">
+        <label for="settings-username">Username</label>
+        <input id="settings-username" type="text" readonly [value]="username()" />
+        <p class="hint">Usernames cannot be changed.</p>
+      </div>
+      <div class="field">
+        <label for="settings-display-name">Display name</label>
+        <input
+          id="settings-display-name"
+          type="text"
+          formControlName="displayName"
+          [readOnly]="pending()"
+          [attr.aria-invalid]="fieldError('displayName') ? 'true' : null"
+          aria-describedby="display-name-error"
+        />
+        <p id="display-name-error" class="field-error" aria-live="polite">
+          {{ fieldError("displayName") ?? "" }}
+        </p>
+      </div>
+      <button type="submit" [disabled]="pending()">{{ savingProfile() ? "Saving…" : "Save profile" }}</button>
+      @if (profileError(); as message) {
+        <p id="profile-error" class="message error" role="alert" aria-live="assertive">{{ message }}</p>
+      } @else {
+        <p class="message success" role="status" aria-live="polite"></p>
+      }
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="password-title">
+    <h3 id="password-title">Password</h3>
+    <form id="password-form" [formGroup]="passwordForm" (ngSubmit)="changePassword()" [attr.aria-busy]="changingPassword()">
+      <div class="field">
+        <label for="settings-current-password">Current password</label>
+        <input
+          id="settings-current-password"
+          type="password"
+          formControlName="currentPassword"
+          autocomplete="current-password"
+          [readOnly]="pending()"
+          [attr.aria-invalid]="passwordFieldError() ? 'true' : null"
+          aria-describedby="current-password-error password-error-summary"
+        />
+      </div>
+      <div class="field">
+        <label for="settings-new-password">New password</label>
+        <input
+          id="settings-new-password"
+          type="password"
+          formControlName="newPassword"
+          autocomplete="new-password"
+          [readOnly]="pending()"
+          aria-describedby="new-password-error"
+        />
+        <p id="new-password-hint" class="hint">Changing your password signs out every session on every device.</p>
+      </div>
+      <div class="field">
+        <label for="settings-confirm-password">Repeat new password</label>
+        <input
+          id="settings-confirm-password"
+          type="password"
+          formControlName="confirmPassword"
+          autocomplete="new-password"
+          [readOnly]="pending()"
+          [attr.aria-invalid]="(confirmationMismatch() ? confirmationMismatchMessage : passwordFieldHint('confirmPassword')) ? 'true' : null"
+          aria-describedby="confirm-password-error"
+        />
+        <p id="confirm-password-error" class="field-error" aria-live="polite">
+          @if (confirmationMismatch()) { {{ confirmationMismatchMessage }} } @else { {{ passwordFieldHint("confirmPassword") ?? "" }} }
+        </p>
+      </div>
+      <p id="current-password-error" class="field-error" aria-live="polite">
+        {{ passwordFieldError() ?? "" }}
+      </p>
+      @if (passwordError(); as message) {
+        <p id="password-error-summary" class="message error" role="alert">{{ message }}</p>
+      }
+      <button type="submit" [disabled]="pending()">{{ changingPassword() ? "Changing…" : "Change password" }}</button>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="household-title">
+    <h3 id="household-title">Household</h3>
+    @let householdView = householdState();
+    @switch (householdView.kind) {
+      @case ("loading") { <p role="status" aria-live="polite">Loading household…</p> }
+      @case ("error") {
+        <p class="message error" role="alert">{{ householdView.message }}
+          <button type="button" (click)="retryHousehold()" [disabled]="pending()">Retry</button>
+        </p>
+      }
+      @case ("ready") {
+        <p class="household-name">{{ householdView.details.name }}</p>
+        <ul class="members" aria-label="Household members">
+          @for (member of householdView.details.members; track member.id) {
+            <li>
+              <span class="member-name">{{ member.displayName }}</span>
+              <span class="member-role">{{ member.role }}</span>
+              @if (!member.isActive) { <span class="member-inactive">Inactive</span> }
+            </li>
+          }
+        </ul>
+      }
+    }
+  </section>
+
+  <section class="card" aria-labelledby="data-title">
+    <h3 id="data-title">Data</h3>
+    <p class="hint">Download this household's transactions as a CSV file.</p>
+    @let selectorView = selectorState();
+    @switch (selectorView.kind) {
+      @case ("loading") { <p role="status" aria-live="polite">Loading filters…</p> }
+      @case ("error") {
+        <p class="message error" role="alert">{{ selectorView.message }}
+          <button type="button" (click)="retrySelectors()" [disabled]="downloading()">Retry</button>
+        </p>
+      }
+      @case ("ready") {
+        <div class="filters">
+          <div class="field">
+            <label for="export-from">From date</label>
+            <input id="export-from" type="date" (change)="applyFilter('from', $any($event.target).value)" [value]="filters().from ?? ''" [disabled]="downloading()" />
+          </div>
+          <div class="field">
+            <label for="export-to">To date</label>
+            <input id="export-to" type="date" (change)="applyFilter('to', $any($event.target).value)" [value]="filters().to ?? ''" [disabled]="downloading()" />
+          </div>
+          <div class="field">
+            <label for="export-account">Account</label>
+            <select id="export-account" (change)="applyFilter('accountId', $any($event.target).value)" [value]="filters().accountId ?? ''" [disabled]="downloading()">
+              <option value="">All accounts</option>
+              @for (account of selectorView.accounts; track account.id) {
+                <option [value]="account.id">{{ account.name }} @if (account.isArchived) { (archived) }</option>
+              }
+            </select>
+          </div>
+          <div class="field">
+            <label for="export-category">Category</label>
+            <select id="export-category" (change)="applyFilter('categoryId', $any($event.target).value)" [value]="filters().categoryId ?? ''" [disabled]="downloading()">
+              <option value="">All categories</option>
+              @for (category of selectorView.categories; track category.id) {
+                <option [value]="category.id">{{ category.name }} @if (category.isArchived) { (archived) }</option>
+              }
+            </select>
+          </div>
+        </div>
+      }
+    }
+    <button id="download-csv" type="button" (click)="downloadCsv()" [disabled]="downloading()">
+      {{ downloading() ? "Downloading…" : "Download CSV" }}
+    </button>
+    @if (exportError(); as message) {
+      <p id="export-error" class="message error" role="alert">{{ message }}
+        <button type="button" (click)="downloadCsv()" [disabled]="downloading()">Retry</button>
+      </p>
+    }
+    @if (exportAnnouncement(); as message) {
+      <p class="message" role="status" aria-live="polite">{{ message }}</p>
+    }
+    <p class="hint">The CSV is a spreadsheet-safe export, not a full backup. Database recovery is an administrator operation — ask your administrator about the configured backup schedule.</p>
+  </section>
+</section>

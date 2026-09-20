@@ -28,6 +28,10 @@ const dashboardPassword =
   process.env["BUDGET_E2E_DASHBOARD_PASSWORD"] ?? randomBytes(24).toString("base64url");
 const budgetsPassword =
   process.env["BUDGET_E2E_BUDGETS_PASSWORD"] ?? randomBytes(24).toString("base64url");
+const settingsPassword =
+  process.env["BUDGET_E2E_SETTINGS_PASSWORD"] ?? randomBytes(24).toString("base64url");
+const householdPassword =
+  process.env["BUDGET_E2E_HOUSEHOLD_PASSWORD"] ?? randomBytes(24).toString("base64url");
 
 process.env["BUDGET_E2E_DATA_DIRECTORY"] = e2eDataDirectory;
 process.env["BUDGET_E2E_DATABASE_URL"] = databaseUrl;
@@ -37,10 +41,15 @@ process.env["BUDGET_E2E_SESSION_SECRET"] = sessionSecret;
 process.env["BUDGET_E2E_EXPIRED_SESSION_TOKEN"] = e2eExpiredSessionToken;
 process.env["BUDGET_E2E_DASHBOARD_PASSWORD"] = dashboardPassword;
 process.env["BUDGET_E2E_BUDGETS_PASSWORD"] = budgetsPassword;
+process.env["BUDGET_E2E_SETTINGS_PASSWORD"] = settingsPassword;
+process.env["BUDGET_E2E_HOUSEHOLD_PASSWORD"] = householdPassword;
 
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
+  // Browser specs share one disposable SQLite household; isolate them from
+  // cross-file write races rather than making each scenario guess about order.
+  workers: 1,
   forbidOnly: Boolean(process.env["CI"]),
   retries: process.env["CI"] ? 2 : 0,
   reporter: "list",
@@ -61,11 +70,14 @@ export default defineConfig({
         ALLOWED_ORIGINS: "http://127.0.0.1:4200,http://localhost:4200",
         TRUSTED_HOSTS: "127.0.0.1,localhost",
         SECURE_COOKIES: "false",
+        E2E_BROWSER_MODE: "1",
         E2E_USERNAME: e2eUsername,
         E2E_PASSWORD: e2ePassword,
         E2E_EXPIRED_SESSION_TOKEN: e2eExpiredSessionToken,
         E2E_DASHBOARD_PASSWORD: dashboardPassword,
         E2E_BUDGETS_PASSWORD: budgetsPassword,
+        E2E_SETTINGS_PASSWORD: settingsPassword,
+        E2E_HOUSEHOLD_PASSWORD: householdPassword,
       },
       url: "http://127.0.0.1:8000/api/health",
       reuseExistingServer: false,

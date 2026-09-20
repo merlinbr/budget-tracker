@@ -29,6 +29,7 @@ import { PendingFormService } from "../core/pending-form.service";
           <a routerLink="/categories" routerLinkActive="active" ariaCurrentWhenActive="page">Categories</a>
           <a routerLink="/transactions" routerLinkActive="active" ariaCurrentWhenActive="page">Transactions</a>
           <a routerLink="/budgets" routerLinkActive="active" ariaCurrentWhenActive="page">Budgets</a>
+          <a routerLink="/settings" routerLinkActive="active" ariaCurrentWhenActive="page">Settings</a>
         </nav>
         @if (logoutError(); as errorMessage) {
           <p class="message error" role="alert">{{ errorMessage }}</p>

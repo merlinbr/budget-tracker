@@ -1,0 +1,30 @@
+{
+	"groups": {
+		"group:household": ["household-user@example.com"]
+	},
+	"tagOwners": {
+		"tag:budget": ["autogroup:admin"]
+	},
+	"hosts": {
+		"100.64.0.0/10": "tailnet"
+	},
+	"grants": [
+		{
+			"src": ["group:household"],
+			"dst": ["tag:budget"],
+			"ip": ["tcp:443"]
+		},
+		{
+			"src": ["group:household"],
+			"dst": ["tag:emby"],
+			"ip": ["tcp:8096"]
+		}
+	],
+	"tests": [
+		{
+			"action": "accept",
+			"src": "household-user@example.com",
+			"accept": ["tag:budget:443"]
+		}
+	]
+}

@@ -77,4 +77,59 @@ with SessionLocal() as db:
                 role="owner",
             )
         )
+    settings_password = os.environ["E2E_SETTINGS_PASSWORD"]
+    for width in (1280, 390):
+        settings_household = Household(name=f"Settings Household {width}")
+        db.add(settings_household)
+        db.flush()
+        settings_user = User(
+            username=f"e2e-settings-{width}",
+            display_name=f"Settings User {width}",
+            password_hash=hash_password(settings_password),
+            is_active=True,
+        )
+        db.add(settings_user)
+        db.flush()
+        db.add(
+            HouseholdMember(
+                household_id=settings_household.id,
+                user_id=settings_user.id,
+                role="owner",
+            )
+        )
+        sibling = User(
+            username=f"e2e-settings-{width}-member",
+            display_name=f"Settings Member {width}",
+            password_hash=hash_password(settings_password + "-member"),
+            is_active=True,
+        )
+        db.add(sibling)
+        db.flush()
+        db.add(
+            HouseholdMember(
+                household_id=settings_household.id,
+                user_id=sibling.id,
+                role="member",
+            )
+        )
+    household_password = os.environ["E2E_HOUSEHOLD_PASSWORD"]
+    for width in (1280, 390):
+        workflow_household = Household(name=f"Workflow Household {width}")
+        db.add(workflow_household)
+        db.flush()
+        workflow_user = User(
+            username=f"e2e-household-{width}",
+            display_name=f"Household User {width}",
+            password_hash=hash_password(household_password),
+            is_active=True,
+        )
+        db.add(workflow_user)
+        db.flush()
+        db.add(
+            HouseholdMember(
+                household_id=workflow_household.id,
+                user_id=workflow_user.id,
+                role="owner",
+            )
+        )
     db.commit()

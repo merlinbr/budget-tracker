@@ -6,6 +6,7 @@ import { BudgetsPage } from "./features/budgets/budgets.page";
 import { CategoriesPage } from "./features/categories/categories.page";
 import { DashboardPage } from "./features/dashboard/dashboard.page";
 import { LoginPage } from "./features/login/login.page";
+import { SettingsPage } from "./features/settings/settings.page";
 import { TransactionsPage } from "./features/transactions/transactions.page";
 import { AppShellComponent } from "./layout/app-shell";
 
@@ -22,6 +23,7 @@ export const routes: Routes = [
       { path: "transactions", component: TransactionsPage, canActivate: [authGuard], canDeactivate: [pendingFormGuard] },
       { path: "categories", component: CategoriesPage, canActivate: [authGuard], canDeactivate: [pendingFormGuard] },
       { path: "budgets", component: BudgetsPage, canActivate: [authGuard], canDeactivate: [pendingFormGuard] },
+      { path: "settings", component: SettingsPage, canActivate: [authGuard], canDeactivate: [pendingFormGuard] },
     ],
   },
   { path: "**", redirectTo: "dashboard" },

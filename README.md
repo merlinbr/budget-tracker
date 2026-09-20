@@ -1,6 +1,6 @@
 # Household Budget Tracker
 
-Private, self-hosted household budget tracker. Milestones 1–5 provide local authentication, household membership, account/category management, exact-cent balances, archive workflows, transaction entry/history, a household-scoped selected-month dashboard, and monthly category budgets with usage/Copy-previous. Browser list loading/failure visual rendering remains unverified; settings and CSV export remain out of scope.
+Private, self-hosted household budget tracker. Milestones 1–6 provide local authentication, household membership, account/category management, exact-cent balances, archive workflows, transaction entry/history, a household-scoped selected-month dashboard, monthly category budgets, profile/household settings, safe CSV export, and host-operated backup/recovery. Application and disposable-recovery verification passed; actual production host, device, firewall, DNS/TLS, scheduler, and network-isolation gates remain open.
 
 ## Requirements
 
@@ -87,6 +87,10 @@ Verified locally against disposable databases and the real-backend browser harne
 - M5 final integrated runs: `cd backend && python -m pytest -p no:warnings` — **211 passed**; `cd frontend && npm test -- --watch=false` — **12 test files / 52 tests passed**; `npm run build` — **passed**; `npx playwright test` — **12 passed** at `1280×900` and `390×844`.
 - Alembic M5 focused: on explicitly temporary SQLite URLs, `0004 → 0005` preserved all seeded M4 rows/sums (household/user/account/category/transaction counts, initial balance `100000`, transaction sum `-8472`); through the M5 app a seeded identity authenticated, `GET /api/dashboard` returned the M4 baseline (expenses `8472`, balance `91528`, empty `budgets`), and `PUT /api/budgets/1` limit `60000` returned `spent 8472 / remaining 51528`; downgrade `0004` removed `budgets` and preserved every M4 row; re-upgrade re-reached head with empty `budgets` and unchanged M4 totals via the app; a separate empty database upgraded to head `0005_budgets`.
 - Focused M5 security review: no confirmed vulnerability in budget household predicates (`require_household` on every route, `household_id` in every predicate and joined category lookup via `get_category(db, id, household_id)`), CSRF coverage (`csrf_guard` is a global dependency covering the three write routes), validate-before-commit ordering, integer-cent precision/overflow rollbacks, or financial logging. `backend/app/budgets.py` has no logger/print calls; errors carry only status codes and the shared messages. This was a focused source review, not external penetration testing.
+- M6 final integrated checks: `cd backend && python -m pytest` — **286 passed, 244 warnings**; `cd frontend && npm test -- --watch=false` — **13 test files / 71 tests passed**; `npm run build` — **passed**; `npx playwright test` — **16 passed** at `1280×900` and `390×844` with the shared SQLite browser suite serialized to one worker.
+- M6 disposable production-shaped Compose: isolated `APP_ENV=production` primary and recovery projects used `lvh.me`, Caddy internal TLS, backend health `200`, backend-only internal port, private/no-store API responses, security headers, and production `/openapi.json`, `/docs`, `/redoc` plus unknown API paths returning `404`. The primary backup captured two accounts and revision `0005_budgets`; restore produced `sessions=0`, one transaction, and the configured budget; the old cookie received `401` on recovery, fresh login read the restored dashboard, and a new transaction returned `201`.
+- M6 visual inspection: real Chrome checks covered desktop and phone login, dashboard, accounts, categories, transactions, budgets (including over-budget text), and settings (including populated data and validation/error surfaces). The mobile invalid-login path was corrected to keep `document.documentElement.scrollWidth` equal to the 390px viewport.
+- Focused M6 security review: no confirmed vulnerability in household predicates, profile/member exposure, password-change semantics, CSV query scoping/formula neutralization, backup/restore session removal, production host validation, API cache policy, CSP/security headers, or backend port exposure. This was source and disposable-environment review, not external penetration testing.
 
 ## Administration
 
@@ -113,7 +117,7 @@ docker compose config
 docker compose up --build
 ```
 
-Compose runs the Alembic migrations before serving FastAPI. Caddy is the only published service; the backend has no host port and runs one worker with `--no-proxy-headers`. Database files persist in `./data`, and Caddy state persists in named volumes.
+Compose runs Alembic migrations before serving FastAPI. Caddy is the only published service; the backend has no host port and runs one worker with `--no-proxy-headers`. Database files persist in `./data`, and Caddy state persists in named volumes. Production-shaped validation rules and operator ownership/TLS/firewall steps are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 The development Compose binding uses Caddy's internal CA at `https://localhost:8443`. Its exact allowed origin is `https://localhost:8443`, and secure cookies are enabled:
 
@@ -122,7 +126,7 @@ curl --insecure https://localhost:8443/api/health
 curl --insecure https://localhost:8443/api/unknown
 ```
 
-Install and trust the Caddy root certificate on a device before using a browser without a certificate warning. Production must replace the example secret with a high-entropy value and configure exact HTTPS origins and trusted hosts. The in-memory limiter is single-worker; behind Caddy, clients initially share the socket IP bucket because arbitrary forwarded headers are not trusted.
+In production, `/openapi.json`, `/docs`, and `/redoc` are disabled and must not fall through to the Angular index. Install and trust the Caddy root certificate before using a browser without a certificate warning. The in-memory limiter is single-worker; behind Caddy, clients initially share the socket IP bucket because arbitrary forwarded headers are not trusted.
 
 ## Migrations
 
@@ -152,6 +156,13 @@ Use a separate disposable database for downgrade/upgrade checks. Do not downgrad
 - Transaction amounts are nonzero signed cents bounded to `[-9007199254740991, 9007199254740991]`; malformed amounts/dates, sign/category mismatches, and aggregate overflow return validation/conflict errors.
 - Unknown `/api/*` paths return the shared JSON error envelope and never receive the Angular index document.
 
+- `PATCH /api/users/me` updates the authenticated display name; `GET /api/household` returns only the current household's member display names, roles, and active state. Wrong current passwords return a field-level `422` without revoking the session; successful changes revoke all sessions and redirect the browser to login.
+- `GET /api/export/transactions.csv` returns a household-scoped, spreadsheet-safe UTF-8 CSV with optional inclusive date/account/category filters, archived historical references, integer-cent amounts, fixed columns, and private/no-store download headers. CSV is not a restorable database backup.
+
+## Settings and operations
+
+The guarded `/settings` page provides profile, password, read-only household membership, CSV filters/download, and honest backup guidance. Host-operated backup and offline recovery commands, retention rules, scheduler examples, and recovery drills are documented in [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md). Browser restore and public registration are intentionally not provided.
+
 ## Accounts and categories
 
 - Account initial balances are signed integer cents in `[-9007199254740991, 9007199254740991]`; input accepts up to 14 whole digits and two decimals with comma or dot separators and no grouping.
@@ -161,4 +172,4 @@ Use a separate disposable database for downgrade/upgrade checks. Do not downgrad
 - The optional default-category prompt runs only during new `init-household`; existing households are never seeded retroactively.
 
 
-Settings and CSV export, registration, email recovery, backups, and production network changes belong to later milestones.
+Actual deployment requires real server and device evidence for LAN/Tailscale reachability, trusted internal TLS, denied Emby-only access, public IPv4/IPv6 denial, scheduler/permissions, HSTS decision, and firewall/backend-port isolation. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) and the release boundary in [`docs/LUNA_HANDOFF.md`](docs/LUNA_HANDOFF.md).

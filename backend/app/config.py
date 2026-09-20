@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -64,19 +65,88 @@ class Settings(BaseSettings):
             raise ValueError("SESSION_SECRET must be a high-entropy production secret")
         if not self.secure_cookies:
             raise ValueError("SECURE_COOKIES must be true in production")
-        if not self.allowed_origins or any(
-            not origin.startswith("https://") for origin in self.allowed_origins
-        ):
-            raise ValueError("production ALLOWED_ORIGINS must contain only HTTPS origins")
-        if not self.trusted_hosts or any(
-            host in {"*", "localhost", "127.0.0.1"} for host in self.trusted_hosts
-        ):
-            raise ValueError("production TRUSTED_HOSTS must contain exact non-local hosts")
+        self.validate_production_origins()
+        self.validate_production_trusted_hosts()
         if not self.database_url.startswith("sqlite:////"):
             raise ValueError("production DATABASE_URL must use an absolute SQLite path")
         return self
+
+    def validate_production_origins(self) -> None:
+        if not self.allowed_origins or any(
+            not _is_exact_https_origin(origin) for origin in self.allowed_origins
+        ):
+            raise ValueError("production ALLOWED_ORIGINS must contain only exact HTTPS origins")
+        trusted = set(self.trusted_hosts)
+        for origin in self.allowed_origins:
+            if _origin_hostname(origin) not in trusted:
+                raise ValueError(
+                    "every production ALLOWED_ORIGINS hostname must appear in TRUSTED_HOSTS"
+                )
+
+    def validate_production_trusted_hosts(self) -> None:
+        if not self.trusted_hosts or any(
+            not _is_exact_trusted_host(host) for host in self.trusted_hosts
+        ):
+            raise ValueError(
+                "production TRUSTED_HOSTS must be exact hostnames without wildcards, URLs or loopback"
+            )
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def _is_exact_https_origin(origin: str) -> bool:
+    if origin != origin.strip() or not origin.startswith("https://"):
+        return False
+    return _origin_hostname(origin) is not None
+
+
+def _origin_hostname(origin: str) -> str | None:
+    try:
+        parts = urlsplit(origin)
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.scheme != "https":
+        return None
+    if parts.username is not None or parts.password is not None:
+        return None
+    if parts.path != "" or parts.query or parts.fragment:
+        return None
+    if hostname is None or "*" in hostname or ":" in hostname or not hostname.isascii():
+        return None
+    if not _is_exact_trusted_host(hostname):
+        return None
+    body = origin[len("https://"):]
+    if ":" in body:
+        if body != f"{hostname}:{port}":
+            return None
+    elif port is not None:
+        return None
+    return hostname
+
+
+def _is_exact_trusted_host(host: str) -> bool:
+    if (
+        not host
+        or host != host.strip()
+        or not host.isascii()
+        or any(char in host for char in "/:?@#")
+    ):
+        return False
+    if host in {"*", "localhost", "127.0.0.1", "[::1]"}:
+        return False
+    if host.endswith(".localhost"):
+        return False
+    try:
+        parsed = urlsplit(f"https://{host}")
+    except ValueError:
+        return False
+    if parsed.hostname != host.lower() or parsed.port is not None:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    return True

@@ -6,6 +6,18 @@
 	tls internal
 	encode gzip
 
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	@disabled_docs path /openapi.json /docs /docs/* /redoc /redoc/*
+	handle @disabled_docs {
+		respond 404
+	}
+
 	@api path /api /api/*
 	handle @api {
 		reverse_proxy backend:8000

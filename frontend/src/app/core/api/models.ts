@@ -9,6 +9,27 @@ export interface AuthState {
     name: string;
   };
 }
+
+export interface HouseholdMember {
+  id: number;
+  displayName: string;
+  role: "owner" | "member";
+  isActive: boolean;
+}
+
+export interface HouseholdDetails {
+  id: number;
+  name: string;
+  members: HouseholdMember[];
+}
+
+export interface ExportFilters {
+  from?: string;
+  to?: string;
+  accountId?: number;
+  categoryId?: number;
+}
+
 export type AccountType = "checking" | "savings" | "credit_card" | "cash" | "other";
 
 export interface Account {

@@ -76,6 +76,22 @@ export class AuthService {
     );
   }
 
+  updateDisplayName(displayName: string): Observable<AuthState["user"]> {
+    return this.http.patch<AuthState["user"]>("/api/users/me", { displayName }).pipe(
+      tap((user) =>
+        this._authState.update((state) =>
+          state?.user.id === user.id ? { ...state, user } : state,
+        ),
+      ),
+    );
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Observable<void> {
+    return this.http
+      .post<void>("/api/auth/change-password", { currentPassword, newPassword })
+      .pipe(tap(() => this.clear()));
+  }
+
   clear(): void {
     this._authState.set(null);
     this._restoration.set("ready");

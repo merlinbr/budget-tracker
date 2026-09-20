@@ -133,7 +133,18 @@ def test_password_change_revokes_all_devices(client, test_app, seeded_user, csrf
             },
             headers=csrf_headers(),
         )
-        assert wrong.status_code == 401
+        assert wrong.status_code == 422
+        assert wrong.json()["error"]["code"] == "VALIDATION_ERROR"
+        assert wrong.json()["error"]["fields"] == {
+            "currentPassword": "Current password is incorrect."
+        }
+        # Password unchanged: old password still authenticates.
+        retry = client.post(
+            "/api/auth/login",
+            json={"username": seeded_user.username, "password": seeded_user.password},
+            headers=csrf_headers(),
+        )
+        assert retry.status_code == 200
         assert client.get("/api/auth/me").status_code == 200
         assert second.get("/api/auth/me").status_code == 200
 

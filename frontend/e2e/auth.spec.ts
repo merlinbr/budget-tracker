@@ -9,6 +9,13 @@ test("logs in, restores, logs out, and protects the dashboard", async ({ page })
   await page.goto("/login");
 
   await expect(page.getByRole("heading", { name: "Sign in to Budget Tracker" })).toBeVisible();
+  await page.getByLabel("Username").fill(e2eUsername);
+  await page.getByLabel("Password").fill(`${e2ePassword}-wrong`);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Invalid username or password.");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByLabel("Username").fill("");
+  await page.getByLabel("Password").fill("");
   await page.getByLabel("Username").focus();
   await page.keyboard.type(e2eUsername);
   await page.keyboard.press("Tab");
