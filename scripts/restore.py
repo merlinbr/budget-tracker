@@ -12,8 +12,8 @@ Safety properties (contract):
 - stages privately beside the target with mode 0700
 - snapshots the existing target first, preserving ownership/mode on replacement
 - corrupt existing targets abort without replacement
-- pre-restore snapshots have unique names
-- failures leave the original target untouched
+- pre-restore snapshots never overwrite existing directory entries
+- existing target sidecars are parked transactionally around publication
 - fsyncs the staged file and target directory after publication
 """
 
@@ -74,19 +74,122 @@ def _unique_preserve_name(directory: Path, stamp: str) -> Path:
     while True:
         suffix = f"-{serial:02x}" if serial else ""
         target = directory / f"budget-pre-restore-{stamp}{suffix}.sqlite"
+        if not os.path.lexists(target):
+            return target
+        serial += 1
+
+
+def _same_inode(path: Path, expected: os.stat_result) -> bool:
+    try:
+        actual = os.stat(path, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return (actual.st_dev, actual.st_ino) == (
+        expected.st_dev, expected.st_ino
+    )
+
+
+def _unlink_if_same_inode(path: Path, expected: os.stat_result) -> None:
+    if not os.path.lexists(path):
+        return
+    if not _same_inode(path, expected):
+        raise RuntimeError(f"path changed before cleanup: {path}")
+    path.unlink()
+
+
+def _publish_preserve(source: Path, directory: Path, stamp: str) -> Path:
+    """Publish a verified preserve snapshot without replacing any path."""
+    source_stat = os.stat(source, follow_symlinks=False)
+    while True:
+        target = _unique_preserve_name(directory, stamp)
         try:
-            fd = os.open(
-                target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
-            )
+            os.link(source, target)
         except FileExistsError:
-            serial += 1
             continue
+        except PermissionError:
+            if os.path.lexists(target):
+                continue
+            raise
         try:
-            os.close(fd)
+            _unlink_if_same_inode(source, source_stat)
         except Exception:
-            target.unlink(missing_ok=True)
+            _unlink_if_same_inode(target, source_stat)
             raise
         return target
+
+
+def _sidecar_private_name(directory: Path, serial: int) -> Path:
+    return directory / (
+        f".budget-restore-sidecar-{os.getpid()}-{serial:02x}"
+    )
+
+
+def _park_sidecar(sidecar: Path, directory: Path) -> tuple[Path, os.stat_result]:
+    """Park one sidecar with a no-overwrite hard link, then unlink its source."""
+    if sidecar.is_symlink():
+        raise RuntimeError(f"sidecar must not be a symlink: {sidecar}")
+    source_stat = os.stat(sidecar, follow_symlinks=False)
+    serial = 0
+    while True:
+        parked = _sidecar_private_name(directory, serial)
+        serial += 1
+        if os.path.lexists(parked):
+            continue
+        try:
+            os.link(sidecar, parked)
+        except FileExistsError:
+            continue
+        except PermissionError:
+            if os.path.lexists(parked):
+                continue
+            raise
+        parked_stat = os.stat(parked, follow_symlinks=False)
+        try:
+            _unlink_if_same_inode(sidecar, source_stat)
+        except Exception:
+            _unlink_if_same_inode(parked, parked_stat)
+            raise
+        return parked, parked_stat
+
+
+def _restore_parked_sidecars(
+    parked: list[tuple[Path, Path, os.stat_result]]
+) -> None:
+    errors: list[Exception] = []
+    for original, saved, saved_stat in reversed(parked):
+        try:
+            if not _same_inode(saved, saved_stat):
+                raise RuntimeError(f"parked sidecar changed before rollback: {saved}")
+            try:
+                os.link(saved, original)
+            except FileExistsError:
+                if not _same_inode(original, saved_stat):
+                    raise
+            except PermissionError:
+                if not _same_inode(original, saved_stat):
+                    raise
+            _unlink_if_same_inode(saved, saved_stat)
+        except Exception as exc:
+            errors.append(exc)
+    if errors:
+        raise RuntimeError(
+            f"could not restore {len(errors)} parked sidecar(s)"
+        ) from errors[0]
+
+
+def _discard_parked_sidecars(
+    parked: list[tuple[Path, Path, os.stat_result]]
+) -> None:
+    errors: list[Exception] = []
+    for _, saved, saved_stat in parked:
+        try:
+            _unlink_if_same_inode(saved, saved_stat)
+        except Exception as exc:
+            errors.append(exc)
+    if errors:
+        raise RuntimeError(
+            f"could not remove {len(errors)} parked sidecar(s) after publication"
+        ) from errors[0]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -155,7 +258,6 @@ def main(argv: list[str] | None = None) -> int:
         # Preserve the existing target before touching it. A corrupt target
         # aborts the restore: retained untouched for manual recovery.
         published: Path | None = None
-        published_ready = False
         target_stat: os.stat_result | None = None
         if database.exists():
             target_stat = os.stat(database)
@@ -163,9 +265,6 @@ def main(argv: list[str] | None = None) -> int:
                 prefix=".budget-pre-restore-", dir=database.parent
             ))
             try:
-                published = _unique_preserve_name(
-                    database.parent, _utc_stamp()
-                )
                 create_snapshot(database, stamp_dir)
                 pres = list(stamp_dir.glob("budget-*.sqlite"))
                 if len(pres) != 1:
@@ -174,12 +273,11 @@ def main(argv: list[str] | None = None) -> int:
                         f" published snapshot, found {len(pres)}"
                     )
                 _fsync_file(pres[0])
-                os.replace(pres[0], published)
-                published_ready = True
+                published = _publish_preserve(
+                    pres[0], database.parent, _utc_stamp()
+                )
             finally:
                 shutil.rmtree(stamp_dir, ignore_errors=True)
-                if published is not None and not published_ready:
-                    published.unlink(missing_ok=True)
 
         # Prepare the staged file fully before touching target sidecars.
         if os.name != "nt":
@@ -191,13 +289,40 @@ def main(argv: list[str] | None = None) -> int:
 
         _fsync_file(staged)
 
-        # Remove obsolete sidecars immediately before the atomic swap.
-        if database.exists():
-            Path(str(database) + "-wal").unlink(missing_ok=True)
-            Path(str(database) + "-shm").unlink(missing_ok=True)
-        os.replace(staged, database)
-        staged = None  # ownership moved into the target
-        _fsync_dir(database.parent)
+        # Park sidecars with no-overwrite hard links so any pre-publication
+        # failure can restore their exact names and contents.
+        parked: list[tuple[Path, Path, os.stat_result]] = []
+        published_target = False
+        try:
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(str(database) + suffix)
+                if os.path.lexists(sidecar):
+                    saved, saved_stat = _park_sidecar(
+                        sidecar, database.parent
+                    )
+                    parked.append((sidecar, saved, saved_stat))
+            os.replace(staged, database)
+            staged = None  # ownership moved into the target
+            published_target = True
+        except Exception:
+            if not published_target:
+                _restore_parked_sidecars(parked)
+            raise
+
+        post_publication_errors: list[Exception] = []
+        try:
+            _discard_parked_sidecars(parked)
+        except Exception as exc:
+            post_publication_errors.append(exc)
+        try:
+            _fsync_dir(database.parent)
+        except Exception as exc:
+            post_publication_errors.append(exc)
+        if post_publication_errors:
+            raise RuntimeError(
+                "restore published the target but post-publication cleanup "
+                "or durability failed"
+            ) from post_publication_errors[0]
 
         notes = []
         if published is not None:

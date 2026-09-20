@@ -744,19 +744,66 @@ def test_restore_staged_fsync_failure_keeps_target_sidecars(
     shm.write_bytes(b"shm-marker")
 
     restore = _load_restore_module()
+    real_snapshot = restore.create_snapshot
     real_fsync = restore._fsync_file
+
+    def snapshot_with_markers(database: Path, destination: Path) -> None:
+        real_snapshot(database, destination)
+        wal.write_bytes(b"wal-marker")
+        shm.write_bytes(b"shm-marker")
 
     def fail_staged_fsync(path: Path) -> None:
         if Path(path).name == "staged.sqlite":
             raise OSError("forced staged fsync failure")
         real_fsync(path)
 
+    monkeypatch.setattr(restore, "create_snapshot", snapshot_with_markers)
     monkeypatch.setattr(restore, "_fsync_file", fail_staged_fsync)
     assert restore.main([
         "--backup", str(snap), "--database", str(target), "--confirm"
     ]) == 1
     assert target.read_bytes() == before
-    assert shm.exists()
+    assert wal.read_bytes() == b"wal-marker"
+    assert shm.read_bytes() == b"shm-marker"
+
+
+def test_restore_publication_failure_restores_parked_sidecars(
+    seeded, destinations, tmp_path, monkeypatch
+):
+    """A failed swap rolls parked WAL/SHM back without touching the target."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target = tmp_path / "existing.db"
+    make_migrated_db_from_copy(seeded, target, extra_transactions=0)
+    before = target.read_bytes()
+    wal = Path(str(target) + "-wal")
+    shm = Path(str(target) + "-shm")
+
+    restore = _load_restore_module()
+    real_snapshot = restore.create_snapshot
+    real_replace = restore.os.replace
+
+    def snapshot_with_markers(database: Path, destination: Path) -> None:
+        real_snapshot(database, destination)
+        wal.write_bytes(b"wal-marker")
+        shm.write_bytes(b"shm-marker")
+
+    def fail_publication(source: Path, destination: Path) -> None:
+        if Path(source).name == "staged.sqlite":
+            raise OSError("forced target publication failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(restore, "create_snapshot", snapshot_with_markers)
+    monkeypatch.setattr(restore.os, "replace", fail_publication)
+    assert restore.main([
+        "--backup", str(snap), "--database", str(target), "--confirm"
+    ]) == 1
+    assert target.read_bytes() == before
+    assert wal.read_bytes() == b"wal-marker"
+    assert shm.read_bytes() == b"shm-marker"
+    assert not list(tmp_path.glob(".budget-restore-sidecar-*"))
 
 
 def test_restore_preservation_names_unique_same_second(
@@ -775,6 +822,8 @@ def test_restore_preservation_names_unique_same_second(
     restore = _load_restore_module()
     stamp = "20260920t120000z"
     monkeypatch.setattr(restore, "_utc_stamp", lambda: stamp)
+    occupied = tmp_path / f"budget-pre-restore-{stamp}.sqlite"
+    occupied.write_bytes(b"occupied")
     for target in (target_a, target_b):
         assert restore.main([
             "--backup", str(snap), "--database", str(target), "--confirm"
@@ -784,7 +833,9 @@ def test_restore_preservation_names_unique_same_second(
     assert {p.name for p in pres} == {
         f"budget-pre-restore-{stamp}.sqlite",
         f"budget-pre-restore-{stamp}-01.sqlite",
+        f"budget-pre-restore-{stamp}-02.sqlite",
     }
+    assert occupied.read_bytes() == b"occupied"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink privileges; real-host POSIX check stays open")
