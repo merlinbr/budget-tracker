@@ -329,6 +329,67 @@ def test_backup_keep_days_must_be_positive(seeded, destinations):
     assert result.returncode != 0
     assert budget_snapshots(destinations) == []
 
+def _make_revision_only_db(db_path: Path) -> Path:
+    """DB whose only table is alembic_version at head — not a Budget DB."""
+    assert not db_path.exists()
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+        conn.execute("INSERT INTO alembic_version VALUES (:v)", {"v": HEAD_REVISION})
+        conn.commit()
+    finally:
+        conn.close()
+    return db_path
+
+
+def test_backup_rejects_revision_only_database(tmp_path, destinations):
+    """Reproduced blocker: alembic_version=0005 alone must not publish."""
+    dud = _make_revision_only_db(tmp_path / "budget.db")
+    result = run_script(BACKUP_SCRIPT, "--database", dud,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode != 0
+    assert budget_snapshots(destinations) == []
+    leftovers = [p for p in destinations.iterdir() if p.is_file()]
+    assert leftovers == []
+
+
+def test_backup_rejects_missing_required_table(seeded, destinations):
+    """Migrated head revision but budgets table dropped -> refuse."""
+    conn = sqlite3.connect(seeded)
+    try:
+        conn.execute("DROP TABLE budgets")
+        conn.commit()
+    finally:
+        conn.close()
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode != 0
+    assert budget_snapshots(destinations) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink privileges; real-host POSIX check stays open")
+def test_backup_rejects_symlink_source(seeded, destinations, tmp_path):
+    link = tmp_path / "linked.db"
+    link.symlink_to(seeded)
+    result = run_script(BACKUP_SCRIPT, "--database", link,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode != 0
+    assert "symlink" in result.stderr.lower()
+    assert budget_snapshots(destinations) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink privileges; real-host POSIX check stays open")
+def test_backup_rejects_symlink_destination(seeded, tmp_path):
+    real_dest = tmp_path / "real-backups"
+    real_dest.mkdir()
+    link = tmp_path / "linked-backups"
+    link.symlink_to(real_dest)
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", link, "--keep-days", "30")
+    assert result.returncode != 0
+    assert "symlink" in result.stderr.lower()
+    assert list(real_dest.iterdir()) == []
+
 
 def test_backup_publishes_unique_names_on_repeat(seeded, destinations):
     for _ in range(2):
