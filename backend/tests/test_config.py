@@ -166,6 +166,9 @@ def test_production_rejects_repeating_session_pattern() -> None:
         ["*"],
         ["budget.example.internal/*"],
         ["*.example.internal"],
+        # Reproduced blocker: extra wildcard alongside the required exact host.
+        ["budget.example.internal", "*.example.internal"],
+        ["budget.example.internal", "*"],
         ["https://budget.example.internal"],
         ["budget.example.internal/path"],
         ["localhost"],

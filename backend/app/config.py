@@ -134,10 +134,11 @@ def _is_exact_trusted_host(host: str) -> bool:
         not host
         or host != host.strip()
         or not host.isascii()
+        or "*" in host
         or any(char in host for char in "/:?@#")
     ):
         return False
-    if host in {"*", "localhost", "127.0.0.1", "[::1]"}:
+    if host in {"localhost", "127.0.0.1", "[::1]"}:
         return False
     if host.endswith(".localhost"):
         return False
