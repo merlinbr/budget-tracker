@@ -27,7 +27,7 @@
       @if (profileError(); as message) {
         <p id="profile-error" class="message error" role="alert" aria-live="assertive">{{ message }}</p>
       } @else {
-        <p class="message success" role="status" aria-live="polite"></p>
+        <p id="profile-status" class="message success" role="status" aria-live="polite">{{ profileAnnouncement() ?? "" }}</p>
       }
     </form>
   </section>
@@ -43,9 +43,13 @@
           formControlName="currentPassword"
           autocomplete="current-password"
           [readOnly]="pending()"
-          [attr.aria-invalid]="passwordFieldError() ? 'true' : null"
+          [attr.aria-invalid]="(passwordFieldHint('currentPassword') ?? passwordFieldError()) ? 'true' : null"
           aria-describedby="current-password-error password-error-summary"
         />
+        <p id="current-password-error" class="field-error" aria-live="polite">
+          {{ passwordFieldHint("currentPassword") ?? "" }}
+          @if (passwordFieldError(); as serverError) { {{ serverError }} }
+        </p>
       </div>
       <div class="field">
         <label for="settings-new-password">New password</label>
@@ -55,8 +59,12 @@
           formControlName="newPassword"
           autocomplete="new-password"
           [readOnly]="pending()"
-          aria-describedby="new-password-error"
+          [attr.aria-invalid]="passwordFieldHint('newPassword') ? 'true' : null"
+          aria-describedby="new-password-error new-password-hint"
         />
+        <p id="new-password-error" class="field-error" aria-live="polite">
+          {{ passwordFieldHint("newPassword") ?? "" }}
+        </p>
         <p id="new-password-hint" class="hint">Changing your password signs out every session on every device.</p>
       </div>
       <div class="field">
@@ -74,9 +82,6 @@
           @if (confirmationMismatch()) { {{ confirmationMismatchMessage }} } @else { {{ passwordFieldHint("confirmPassword") ?? "" }} }
         </p>
       </div>
-      <p id="current-password-error" class="field-error" aria-live="polite">
-        {{ passwordFieldError() ?? "" }}
-      </p>
       @if (passwordError(); as message) {
         <p id="password-error-summary" class="message error" role="alert">{{ message }}</p>
       }
@@ -112,46 +117,80 @@
   <section class="card" aria-labelledby="data-title">
     <h3 id="data-title">Data</h3>
     <p class="hint">Download this household's transactions as a CSV file.</p>
-    @let selectorView = selectorState();
-    @switch (selectorView.kind) {
-      @case ("loading") { <p role="status" aria-live="polite">Loading filters…</p> }
-      @case ("error") {
-        <p class="message error" role="alert">{{ selectorView.message }}
-          <button type="button" (click)="retrySelectors()" [disabled]="downloading()">Retry</button>
-        </p>
-      }
-      @case ("ready") {
-        <div class="filters">
-          <div class="field">
-            <label for="export-from">From date</label>
-            <input id="export-from" type="date" (change)="applyFilter('from', $any($event.target).value)" [value]="filters().from ?? ''" [disabled]="downloading()" />
-          </div>
-          <div class="field">
-            <label for="export-to">To date</label>
-            <input id="export-to" type="date" (change)="applyFilter('to', $any($event.target).value)" [value]="filters().to ?? ''" [disabled]="downloading()" />
-          </div>
+    <div class="filters">
+      <div class="field">
+        <label for="export-from">From date</label>
+        <input
+          id="export-from"
+          type="date"
+          (change)="applyFilter('from', $any($event.target).value)"
+          [value]="filters().from ?? ''"
+          [disabled]="downloading()"
+          [attr.aria-invalid]="exportFieldError('from') ? 'true' : null"
+          aria-describedby="export-from-error"
+        />
+        <p id="export-from-error" class="field-error" aria-live="polite">{{ exportFieldError("from") ?? "" }}</p>
+      </div>
+      <div class="field">
+        <label for="export-to">To date</label>
+        <input
+          id="export-to"
+          type="date"
+          (change)="applyFilter('to', $any($event.target).value)"
+          [value]="filters().to ?? ''"
+          [disabled]="downloading()"
+          [attr.aria-invalid]="exportFieldError('to') ? 'true' : null"
+          aria-describedby="export-to-error"
+        />
+        <p id="export-to-error" class="field-error" aria-live="polite">{{ exportFieldError("to") ?? "" }}</p>
+      </div>
+      @let selectorView = selectorState();
+      @switch (selectorView.kind) {
+        @case ("loading") { <p role="status" aria-live="polite">Loading filters…</p> }
+        @case ("error") {
+          <p class="message error" role="alert">{{ selectorView.message }}
+            <button type="button" (click)="retrySelectors()" [disabled]="downloading()">Retry</button>
+          </p>
+        }
+        @case ("ready") {
           <div class="field">
             <label for="export-account">Account</label>
-            <select id="export-account" (change)="applyFilter('accountId', $any($event.target).value)" [value]="filters().accountId ?? ''" [disabled]="downloading()">
+            <select
+              id="export-account"
+              (change)="applyFilter('accountId', $any($event.target).value)"
+              [value]="filters().accountId ?? ''"
+              [disabled]="downloading()"
+              [attr.aria-invalid]="exportFieldError('accountId') ? 'true' : null"
+              aria-describedby="export-account-error"
+            >
               <option value="">All accounts</option>
               @for (account of selectorView.accounts; track account.id) {
                 <option [value]="account.id">{{ account.name }} @if (account.isArchived) { (archived) }</option>
               }
             </select>
+            <p id="export-account-error" class="field-error" aria-live="polite">{{ exportFieldError("accountId") ?? "" }}</p>
           </div>
           <div class="field">
             <label for="export-category">Category</label>
-            <select id="export-category" (change)="applyFilter('categoryId', $any($event.target).value)" [value]="filters().categoryId ?? ''" [disabled]="downloading()">
+            <select
+              id="export-category"
+              (change)="applyFilter('categoryId', $any($event.target).value)"
+              [value]="filters().categoryId ?? ''"
+              [disabled]="downloading()"
+              [attr.aria-invalid]="exportFieldError('categoryId') ? 'true' : null"
+              aria-describedby="export-category-error"
+            >
               <option value="">All categories</option>
               @for (category of selectorView.categories; track category.id) {
                 <option [value]="category.id">{{ category.name }} @if (category.isArchived) { (archived) }</option>
               }
             </select>
+            <p id="export-category-error" class="field-error" aria-live="polite">{{ exportFieldError("categoryId") ?? "" }}</p>
           </div>
-        </div>
+        }
       }
-    }
-    <button id="download-csv" type="button" (click)="downloadCsv()" [disabled]="downloading()">
+    </div>
+    <button id="download-csv" type="button" (click)="downloadCsv()" [disabled]="downloading()" aria-describedby="export-error">
       {{ downloading() ? "Downloading…" : "Download CSV" }}
     </button>
     @if (exportError(); as message) {
@@ -163,5 +202,5 @@
       <p class="message" role="status" aria-live="polite">{{ message }}</p>
     }
     <p class="hint">The CSV is a spreadsheet-safe export, not a full backup. Database recovery is an administrator operation — ask your administrator about the configured backup schedule.</p>
-  </section>
+</section>
 </section>

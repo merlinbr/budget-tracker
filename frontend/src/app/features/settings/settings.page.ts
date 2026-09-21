@@ -35,6 +35,8 @@ type SelectorState =
   | { kind: "loading" }
   | { kind: "ready"; accounts: Account[]; categories: Category[] }
   | { kind: "error"; message: string };
+type ExportField = "from" | "to" | "accountId" | "categoryId";
+
 
 @Component({
   selector: "app-settings-page",
@@ -56,6 +58,8 @@ export class SettingsPage {
   private readonly formBuilder = inject(FormBuilder);
   private readonly householdRequests = new Subject<void>();
   private readonly selectorRequests = new Subject<void>();
+  private exportRequest = 0;
+
 
   readonly profileForm = this.formBuilder.nonNullable.group({
     displayName: [
@@ -84,11 +88,13 @@ export class SettingsPage {
   readonly changingPassword = signal(false);
   readonly downloading = signal(false);
   readonly profileError = signal<string | null>(null);
+  readonly profileAnnouncement = signal<string | null>(null);
   readonly passwordError = signal<string | null>(null);
   readonly passwordFieldError = signal<string | null>(null);
   readonly confirmationMismatch = signal(false);
   readonly confirmationMismatchMessage = "The passwords do not match.";
   readonly exportError = signal<string | null>(null);
+  readonly exportFieldErrors = signal<Partial<Record<ExportField, string>>>({});
   readonly exportAnnouncement = signal<string | null>(null);
   readonly filters = signal<ExportFilters>({});
   readonly pending = computed(
@@ -158,6 +164,7 @@ export class SettingsPage {
   saveProfile(): void {
     if (this.pending()) return;
     this.profileError.set(null);
+    this.profileAnnouncement.set(null);
     this.profileForm.markAllAsTouched();
     if (this.profileForm.invalid) return;
     const displayName = this.profileForm.getRawValue().displayName.trim();
@@ -188,6 +195,7 @@ export class SettingsPage {
             });
           }
           this.profileError.set(null);
+          this.profileAnnouncement.set("Profile saved.");
         },
         error: (error: unknown) => {
           if (this.destroyRef.destroyed) return;
@@ -259,27 +267,53 @@ export class SettingsPage {
 
   downloadCsv(): void {
     if (this.downloading()) return;
+    const request = ++this.exportRequest;
     this.exportError.set(null);
-    const activeFilters = { ...this.filters() };
+    this.exportAnnouncement.set(null);
+    this.exportFieldErrors.set({});
+    const activeFilters: ExportFilters = { ...this.filters() };
+    const selectorView = this.selectorState();
+    if (selectorView.kind !== "ready") {
+      delete activeFilters.accountId;
+      delete activeFilters.categoryId;
+    } else {
+      if (
+        activeFilters.accountId !== undefined &&
+        !selectorView.accounts.some((account) => account.id === activeFilters.accountId)
+      ) {
+        delete activeFilters.accountId;
+      }
+      if (
+        activeFilters.categoryId !== undefined &&
+        !selectorView.categories.some((category) => category.id === activeFilters.categoryId)
+      ) {
+        delete activeFilters.categoryId;
+      }
+    }
     if (
       activeFilters.from &&
       activeFilters.to &&
       activeFilters.from > activeFilters.to
     ) {
-      this.exportError.set("The from date must be on or before the to date.");
+      const message = "The from date must be on or before the to date.";
+      this.exportFieldErrors.set({ from: message, to: message });
+      this.exportError.set(message);
       return;
     }
     this.downloading.set(true);
     this.settings.exportTransactions(activeFilters)
       .pipe(
+        takeUntilDestroyed(this.destroyRef),
         finalize(() => {
-          if (!this.destroyRef.destroyed) this.downloading.set(false);
+          if (!this.destroyRef.destroyed && request === this.exportRequest) {
+            this.downloading.set(false);
+          }
         }),
       )
       .subscribe({
         next: (blob) => {
-          if (this.destroyRef.destroyed) return;
-          if (blob.type.startsWith("application/json")) {
+          if (!this.isCurrentExport(request)) return;
+          if (blob.type.toLowerCase().startsWith("application/json")) {
             this.exportError.set("The export failed. You can retry.");
             return;
           }
@@ -294,11 +328,43 @@ export class SettingsPage {
           this.exportAnnouncement.set("Download started.");
         },
         error: (error: unknown) => {
-          if (this.destroyRef.destroyed) return;
-          this.downloading.set(false);
+          if (!this.isCurrentExport(request)) return;
+          this.exportFieldErrors.set(this.exportFieldMessages(error));
           this.exportError.set(this.errorMessage(error, "Could not download the CSV."));
         },
       });
+  }
+  exportFieldError(field: ExportField): string | null {
+    return this.exportFieldErrors()[field] ?? null;
+  }
+
+
+  private isCurrentExport(request: number): boolean {
+    return !this.destroyRef.destroyed && request === this.exportRequest;
+  }
+
+  private exportFieldMessages(error: unknown): Partial<Record<ExportField, string>> {
+    if (!(error instanceof HttpErrorResponse)) return {};
+    const payload: unknown = error.error;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload) || !("error" in payload)) {
+      return {};
+    }
+    const envelope = payload.error;
+    if (!envelope || typeof envelope !== "object" || Array.isArray(envelope) || !("fields" in envelope)) {
+      return {};
+    }
+    const fields = envelope.fields;
+    if (!fields || typeof fields !== "object" || Array.isArray(fields)) return {};
+    const messages: Partial<Record<ExportField, string>> = {};
+    for (const [field, message] of Object.entries(fields)) {
+      if (
+        (field === "from" || field === "to" || field === "accountId" || field === "categoryId") &&
+        typeof message === "string"
+      ) {
+        messages[field] = message;
+      }
+    }
+    return messages;
   }
 
   fieldError(field: "displayName"): string | null {

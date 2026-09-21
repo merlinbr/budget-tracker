@@ -11,6 +11,7 @@ import { AuthService } from "../../core/auth/auth.service";
 import { PendingFormService } from "../../core/pending-form.service";
 import { LoginPage } from "../login/login.page";
 import { SettingsPage } from "./settings.page";
+import { vi } from "vitest";
 
 const authState = {
   user: { id: 1, username: "merlin", displayName: "Merlin" },
@@ -118,6 +119,31 @@ describe("SettingsPage", () => {
     expect(TestBed.inject(AuthService).restoration()).toBe("ready");
   });
 
+  it("announces profile persistence and resets the announcement for the next attempt", () => {
+    readyHousehold();
+    type("#settings-display-name", "Merlin Renamed");
+    button("Save profile").click();
+    http.expectOne((r) => r.method === "PATCH").flush({
+      id: 1,
+      username: "merlin",
+      displayName: "Merlin Renamed",
+    });
+    fixture.detectChanges();
+    const status = root.querySelector<HTMLElement>("#profile-status")!;
+    expect(status.getAttribute("role")).toBe("status");
+    expect(status.textContent).toContain("Profile saved.");
+
+    button("Save profile").click();
+    fixture.detectChanges();
+    expect(root.textContent).not.toContain("Profile saved.");
+    http.expectOne((r) => r.method === "PATCH").flush(
+      { error: { code: "VALIDATION_ERROR", message: "The request could not be processed." } },
+      { status: 422, statusText: "Unprocessable Entity" },
+    );
+    fixture.detectChanges();
+    expect(root.textContent).toContain("The request could not be processed.");
+  });
+
   it("blocks duplicate saves while pending and releases the guard on completion", () => {
     readyHousehold();
     type("#settings-display-name", "New name");
@@ -157,6 +183,24 @@ describe("SettingsPage", () => {
     fixture.detectChanges();
     http.expectNone((r) => r.url === "/api/auth/change-password");
     expect(root.textContent!.toLowerCase()).toContain("do not match");
+  });
+
+  it("identifies local current and new password errors with field associations", () => {
+    readyHousehold();
+    type("#settings-current-password", "");
+    type("#settings-new-password", "short");
+    type("#settings-confirm-password", "short");
+    button("Change password").click();
+    fixture.detectChanges();
+    http.expectNone((r) => r.url === "/api/auth/change-password");
+    const current = input("#settings-current-password");
+    const next = input("#settings-new-password");
+    expect(current.getAttribute("aria-invalid")).toBe("true");
+    expect(next.getAttribute("aria-invalid")).toBe("true");
+    expect(current.getAttribute("aria-describedby")).toContain("current-password-error");
+    expect(next.getAttribute("aria-describedby")).toContain("new-password-error");
+    expect(root.querySelector("#current-password-error")!.textContent).toContain("at least 12 characters");
+    expect(root.querySelector("#new-password-error")!.textContent).toContain("12 to 1024 characters");
   });
 
   it("sends the password change and navigates to login with the one-time notice on 204", async () => {
@@ -214,36 +258,65 @@ describe("SettingsPage", () => {
     expect(root.textContent).toContain(householdDetails.name);
   });
 
-  it("selector overflow failure shows retry and leaves date-only export available", () => {
+  it("selector failure still leaves date-only export usable with date inputs visible", () => {
     http.expectOne("/api/household").flush(householdDetails);
     const accountsRequest = http.expectOne((r) => r.url === "/api/accounts");
     accountsRequest.flush(
-      {
-        error: {
-          code: "CONFLICT",
-          message: "The calculated amount exceeds the supported range.",
-        },
-      },
+      { error: { code: "CONFLICT", message: "The calculated amount exceeds the supported range." } },
       { status: 409, statusText: "Conflict" },
     );
-    const categoriesRequest = http.expectOne((r) => r.url === "/api/categories");
-    categoriesRequest.flush(categories);
+    http.expectOne((r) => r.url === "/api/categories").flush(categories);
     fixture.detectChanges();
     expect(root.textContent).toContain("Could not load account and category filters.");
-    // Retry is a GET-only action next to the selector error (data card scope).
+    const fromDate = input("#export-from");
+    expect(fromDate).toBeTruthy();
     const dataCard = [...root.querySelectorAll("section")].find((el) =>
       el.textContent?.includes("Download this household's transactions"),
     )!;
-    const retry = button("Retry", dataCard);
-    expect(retry.disabled).toBeFalsy();
-    // Download is not disabled by a selector failure.
+    expect(button("Retry", dataCard).disabled).toBeFalsy();
     expect(button("Download CSV").disabled).toBeFalsy();
+    fromDate.value = "2026-09-01";
+    fromDate.dispatchEvent(new Event("change", { bubbles: true }));
+    fixture.detectChanges();
+    button("Download CSV").click();
+    const exportRequest = http.expectOne((r) => r.url === "/api/export/transactions.csv");
+    expect(exportRequest.request.params.get("from")).toBe("2026-09-01");
+    expect(exportRequest.request.params.get("accountId")).toBeNull();
+    exportRequest.flush(new Blob(["date,description\r\n"], { type: "text/csv" }));
+    fixture.detectChanges();
+    expect(root.textContent).toContain("Download started.");
+  });
+
+  it("prunes a selected account id that disappears from a refreshed selector list", () => {
+    readyHousehold();
+    const accountSelect = root.querySelector<HTMLSelectElement>("#export-account")!;
+    accountSelect.value = "3";
+    accountSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    fixture.detectChanges();
+    // Refresh selectors without the previously selected account (id 3).
+    fixture.componentInstance.retrySelectors();
+    http.expectOne((r) => r.url === "/api/accounts").flush([accounts[1]]);
+    http.expectOne((r) => r.url === "/api/categories").flush(categories);
+    fixture.detectChanges();
+    button("Download CSV").click();
+    const exportRequest = http.expectOne((r) => r.url === "/api/export/transactions.csv");
+    expect(exportRequest.request.params.get("accountId")).toBeNull();
+    exportRequest.flush(new Blob(["date,description\r\n"], { type: "text/csv" }));
+    fixture.detectChanges();
+    expect(root.textContent).toContain("Download started.");
+  });
+
+  it("allows unfiltered export while selector requests are loading", () => {
+    expect(input("#export-from")).toBeTruthy();
     button("Download CSV").click();
     const exportRequest = http.expectOne((r) => r.url === "/api/export/transactions.csv");
     expect(exportRequest.request.params.get("from")).toBeNull();
-    exportRequest.flush(
-      new Blob(["date,description,account,category,type,amount,currency\r\n"], { type: "text/csv" }),
-    );
+    expect(exportRequest.request.params.get("accountId")).toBeNull();
+    expect(exportRequest.request.params.get("categoryId")).toBeNull();
+    exportRequest.flush(new Blob(["date,description\r\n"], { type: "text/csv" }));
+    http.expectOne("/api/household").flush(householdDetails);
+    http.expectOne((r) => r.url === "/api/accounts").flush(accounts);
+    http.expectOne((r) => r.url === "/api/categories").flush(categories);
     fixture.detectChanges();
     expect(root.textContent).toContain("Download started.");
   });
@@ -283,13 +356,73 @@ describe("SettingsPage", () => {
     expect(root.textContent).toContain("from date must be on or before");
   });
 
-  it("decodes a JSON error blob into the message and offers retry without downloading", () => {
+  it("decodes a JSON error Blob into message and field feedback without downloading", async () => {
     readyHousehold();
     button("Download CSV").click();
     const request = http.expectOne((r) => r.url === "/api/export/transactions.csv");
-    request.error(new ProgressEvent("error"), { status: 422, statusText: "Unprocessable Entity" });
+    request.flush(
+      new Blob([JSON.stringify({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "The request could not be processed.",
+          fields: {
+            from: "Year must be between 1900 and 2100.",
+            to: "Choose a valid end date.",
+            accountId: "That account is not available.",
+            categoryId: "That category is not available.",
+          },
+        },
+      })], { type: "application/json" }),
+      { status: 422, statusText: "Unprocessable Entity" },
+    );
     fixture.detectChanges();
-    // Error is visible, no anchor/download took place, and download button re-enabled.
+    expect(root.querySelector<HTMLButtonElement>("#download-csv")!.disabled).toBeTruthy();
+    await vi.waitFor(() => {
+      fixture.detectChanges();
+      expect(root.textContent).toContain("The request could not be processed.");
+      expect(root.textContent).toContain("Year must be between 1900 and 2100.");
+      expect(root.textContent).toContain("Choose a valid end date.");
+      expect(root.textContent).toContain("That account is not available.");
+      expect(root.textContent).toContain("That category is not available.");
+      expect(root.textContent).not.toContain("Download started.");
+      expect(root.querySelector<HTMLButtonElement>("#download-csv")!.disabled).toBeFalsy();
+    });
+    expect(input("#export-from").getAttribute("aria-invalid")).toBe("true");
+    expect(input("#export-from").getAttribute("aria-describedby")).toContain("export-from-error");
+    expect(input("#export-to").getAttribute("aria-invalid")).toBe("true");
+    expect(input("#export-to").getAttribute("aria-describedby")).toContain("export-to-error");
+    const account = root.querySelector<HTMLSelectElement>("#export-account")!;
+    const category = root.querySelector<HTMLSelectElement>("#export-category")!;
+    expect(account.getAttribute("aria-invalid")).toBe("true");
+    expect(account.getAttribute("aria-describedby")).toContain("export-account-error");
+    expect(category.getAttribute("aria-invalid")).toBe("true");
+    expect(category.getAttribute("aria-describedby")).toContain("export-category-error");
+    expect(root.querySelector("#download-csv")!.getAttribute("aria-describedby")).toContain("export-error");
+  });
+
+  it("falls back safely for a malformed export error Blob", async () => {
+    readyHousehold();
+    button("Download CSV").click();
+    const request = http.expectOne((r) => r.url === "/api/export/transactions.csv");
+    request.flush(new Blob(["not JSON"], { type: "application/json" }), {
+      status: 500,
+      statusText: "Server Error",
+    });
+    await vi.waitFor(() => {
+      fixture.detectChanges();
+      expect(root.textContent).toContain("Could not download the CSV.");
+      expect(root.textContent).not.toContain("Download started.");
+      expect(root.querySelector<HTMLButtonElement>("#download-csv")!.disabled).toBeFalsy();
+    });
+  });
+
+  it("shows a connection fallback for a network export failure", () => {
+    readyHousehold();
+    button("Download CSV").click();
+    const request = http.expectOne((r) => r.url === "/api/export/transactions.csv");
+    request.error(new ProgressEvent("error"), { status: 0, statusText: "Unknown Error" });
+    fixture.detectChanges();
+    expect(root.textContent).toContain("Could not connect. Check your connection and try again.");
     expect(button("Download CSV").disabled).toBeFalsy();
   });
 
