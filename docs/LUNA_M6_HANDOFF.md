@@ -2,9 +2,17 @@
 
 ## Assignment and Authorization
 
-The focused M6 plan is implemented. This document now records the delivered application, recovery and production-shaped verification boundary; it does not authorize commits, pushes, deployment, real-data restoration or network-policy changes.
+The focused M6 plan is implemented. This document records the delivered
+application, correction implementation and production-shaped verification
+boundary; it does not authorize commits, pushes, deployment, real-data
+restoration or network-policy changes.
 
-All reachable repository and disposable-environment work passed. The release classification is **release candidate with deployment gates pending** because actual host, device, DNS, firewall, Tailscale/Emby, scheduler and production recovery checks require separate environment inputs and authorization.
+Correction evidence is verified at repository level (backend `303 passed,
+5 skipped`; frontend `13 files / 77 tests`; build; Playwright `16`), and the
+release classification remains
+**release candidate with deployment gates pending** because actual host,
+device, DNS, firewall, Tailscale/Emby, scheduler and production recovery
+checks require separate environment inputs and authorization.
 
 ## Read First
 
@@ -21,10 +29,27 @@ This handoff is an execution guide, not a second specification. Preserve histori
 - M1–M5 remain implemented; M5 is recorded at commit `2003555`, with `fd7d935` restoring canonical Playwright ports. The M6 changes are uncommitted working-tree work; do not discard intervening user changes.
 - Migration head remains `0005_budgets`; no M6 migration was required.
 - Existing stack remains Angular 22.1.x, Node 24.15+ in the Node 24 line, Python 3.13–3.14, FastAPI/Pydantic/SQLAlchemy/Alembic/SQLite, pytest/Vitest/Playwright, Docker Compose v2 and Caddy. No runtime dependency was added.
-- M6 delivered settings/profile/member APIs and UI, safe CSV export, host backup/restore scripts and guides, strict production validation, Caddy security routes/headers, and dedicated settings/full-household browser identities.
-- Repository verification: backend **286 passed** with **244 warnings**, frontend **71 tests across 13 files passed**, production build passed, and full Playwright passed **16 scenarios** at both widths with one worker for the shared disposable SQLite database.
-- Disposable production-shaped Compose/recovery verification used generated credentials, isolated mounts and `lvh.me`; real host/device/network acceptance remains unexecuted.
-- Real Chrome visual inspection covered desktop/phone login, dashboard, accounts, categories, transactions, budgets including over-budget text, settings, populated data, validation/error states, and mobile overflow regression.
+- M6 delivered settings/profile/member APIs and UI, safe CSV export,
+  host backup/restore scripts and guides, strict production validation, Caddy
+  security routes/headers, and dedicated settings/full-household browser
+  identities.
+- Original repository verification: backend **286 passed** with **244
+  warnings**, frontend **71 tests across 13 files passed**, production build
+  passed, and full Playwright passed **16 scenarios** at both widths with one
+  worker for the shared disposable SQLite database. This is historical
+  baseline evidence for the correction pass.
+- Current correction verification: frontend **13 files / 77 tests passed**,
+  production build passed, full Playwright passed **16**, and changed-path
+  disposable smoke passed at 390px and 1280px (screenshots were disposable
+  and are not retained).
+- Disposable production-shaped Compose/recovery verification remains
+  historical evidence; current Compose rendering verified fail-closed
+  recovery data isolation and safe multi-bind replacement. Real
+  host/device/network acceptance remains unexecuted.
+- Real Chrome visual inspection covered desktop/phone login, dashboard,
+  accounts, categories, transactions, budgets including over-budget text,
+  settings, populated data, validation/error states, and mobile overflow
+  regression.
 
 ## Delivered Tasks and Gates
 
@@ -49,22 +74,38 @@ Use the plan's file map. No setup-only deliverable, replacement auth store, gene
 - `GET /api/household` returns `{id,name,members:[{id,displayName,role,isActive}]}`. Member IDs are user IDs; include current memberships, label inactive users, sort by display name then ID, and expose no credentials/session details or other-household records.
 - Reuse `POST /api/auth/change-password` with `{currentPassword,newPassword}`. Passwords remain untrimmed, 12–1024 code points. Confirmation is client-only. Success stays 204, changes the hash, revokes every session for that user and clears cookies.
 - Correct wrong-current-password to **422 `VALIDATION_ERROR`, `fields.currentPassword`**, preserving the password and sessions. The existing 401 would trigger the global interceptor even though authentication remains valid. Fix the backend boundary and affected regression, not an endpoint-specific interceptor bypass.
-- Genuine auth loss remains 401; global CSRF can produce 403 first on a stale-token mutation. Preserve that precedence and never automatically replay a failed mutation.
-- `AuthService.restore()` returns cached identity once ready. Profile success must update the existing auth signal from the returned user and the page's matching member row. A late response must not revive a cleared login or overwrite another user's identity.
-- Use the existing shell, auth/pending guards and `PendingFormService`. It is a single boolean: serialize writes. Clear passwords/auth/pending state on successful password change and navigate to exact `/login` with the plan's fixed non-secret one-time notice.
-- Household and backup information are read-only. No household rename, membership administration, fake backup status or browser restore.
-
 ### CSV
 
-- Authenticated `GET /api/export/transactions.csv`; optional inclusive `from`/`to` calendar dates and positive safe-integer `accountId`/`categoryId`. Dates are exact `YYYY-MM-DD`, years 0001–9999. Reversed/invalid bounds return 422; foreign/missing resource filters share the generic 404.
-- No filters means all household history, including archived references and current renamed account/category labels. Do not inherit the Transactions page's default month.
-- One joined projection scopes **transactions, account joins and category joins** to the household; independent foreign keys do not guarantee tenant-consistent references. Preserve descending transaction-date/created-at/ID ordering. No per-row lookups or account-balance aggregation.
-- Exact columns: `date,description,account,category,type,amount,currency`. UTF-8 without BOM, comma-separated, CRLF records, `csv.writer` quoting; empty export is a header-only 200 download.
-- Render signed integer cents without floating point, e.g. `-8472 → -84.72`; currency is `EUR`. Neutralize dangerous spreadsheet prefixes in description/account/category, including leading whitespace/control/format characters. Do not neutralize signed numeric amounts. CSV is not a full or lossless database backup.
-- Validate and buffer before starting the response so errors remain JSON. Fixed `transactions.csv` filename, private/no-store and nosniff headers. No streaming-job/session-lifetime abstraction.
-- Use an HttpClient Blob download with object-URL cleanup, explicit error-Blob decoding and existing 401 handling. Do not download an error response. Account-selector loading can fail on aggregate overflow; that must not disable valid all-history/date-only export or silently alter selected filters.
-- Browser assertions parse CSV correctly, not by splitting on commas/newlines. Arm the download event before clicking the real button.
-
+- Authenticated `GET /api/export/transactions.csv`; optional inclusive
+  `from`/`to` calendar dates and positive safe-integer `accountId`/`categoryId`.
+  Dates are exact `YYYY-MM-DD`, years 0001–9999. Reversed/invalid bounds
+  return 422; foreign/missing resource filters share the generic 404.
+- No filters means all household history, including archived references and
+  current renamed account/category labels. Do not inherit the Transactions
+  page's default month.
+- One joined projection scopes **transactions, account joins and category
+  joins** to the household; independent foreign keys do not guarantee
+  tenant-consistent references. Preserve descending
+  transaction-date/created-at/ID ordering. No per-row lookups or
+  account-balance aggregation.
+- Exact columns: `date,description,account,category,type,amount,currency`.
+  UTF-8 without BOM, comma-separated, CRLF records, `csv.writer` quoting;
+  empty export is a header-only 200 download.
+- Render signed integer cents without floating point, e.g. `-8472 → -84.72`;
+  currency is `EUR`. Neutralize dangerous spreadsheet prefixes in
+  description/account/category, including leading whitespace/control/format
+  characters. Do not neutralize signed numeric amounts. CSV is not a full or
+  lossless database backup.
+- Validate and buffer before starting the response so errors remain JSON.
+  Fixed `transactions.csv` filename, private/no-store and nosniff headers. No
+  streaming-job/session-lifetime abstraction.
+- Use an HttpClient Blob download with object-URL cleanup, explicit error-Blob
+  decoding and existing 401 handling. Do not download an error response.
+  Account-selector loading can fail on aggregate overflow; that must not
+  disable valid all-history/date-only export or silently alter selected
+  filters.
+- Browser assertions parse CSV correctly, not by splitting on commas/newlines.
+  Arm the download event before clicking the real button.
 ### Backup and offline restore
 
 Create root-level `scripts/backup.py` and `scripts/restore.py`, not replacements for `backend/scripts` E2E helpers. Run them on the host with explicit host paths:
@@ -74,14 +115,40 @@ python scripts/backup.py --database <absolute-db-path> --destination <absolute-b
 python scripts/restore.py --backup <absolute-snapshot-path> --database <absolute-offline-db-path> --confirm
 ```
 
-- Use stdlib `sqlite3.Connection.backup()`, not live-file copying. Open existing sources with `mode=ro`, bound retries, validate integrity/foreign keys/schema, close/checkpoint, and atomically publish a standalone snapshot with restrictive access.
-- Retention means **30 calendar days**, not 30 guaranteed successful runs. Prune only script-owned completed snapshots after successful publication; never prune on backup failure, follow symlinks or delete unrelated files. Expose failures through exit status/logs and configure a daily non-overlapping host schedule.
-- Restore is offline. Stop and verify the backend, scheduler and other database users first; `--confirm` attests to that prerequisite. A SQLite lock cannot establish that no idle process exists.
-- Validate source/revision/paths before changing the target. M6 restore accepts `0005_budgets`; mismatched snapshots require a matching release/migration procedure.
-- Prepare a separate staged database; remove **all `sessions` rows there before publication**. Rotating `SESSION_SECRET` alone does not revoke saved session hashes. Keep the source snapshot immutable.
-- Preserve a verified pre-restore snapshot of an existing target. If validation/preservation fails, abort without replacement. Inspect checkpoint completion before removing old WAL/SHM; publish with same-filesystem `os.replace`, not delete-then-copy.
-- Preserve target ownership/permissions; UID 10001 must be able to write the restored database. Windows confidentiality requires NTFS ACLs, not a claim based on `chmod` alone.
-- Migrate while offline, start only after validation, prove old-cookie 401 and fresh-login restored values. Incident recovery also accounts for historically restored passwords. No force-delete workaround or live production restore test.
+- Use stdlib `sqlite3.Connection.backup()`, not live-file copying. Open
+  existing sources with `mode=ro`, bound retries, validate the **completed
+  standalone snapshot** for `0005_budgets`, required tables, integrity and
+  foreign keys, close/checkpoint, and atomically publish it with restrictive
+  access.
+- Retention means **30 calendar days of completed snapshots**, not 30
+  guaranteed successful runs. Prune only script-owned completed snapshots
+  after successful publication; never prune on backup failure, follow symlinks
+  or delete unrelated files. Expose failures through exit status/logs and
+  configure a daily non-overlapping host schedule; offsite retention is
+  optional, not an MVP gate.
+- Restore is offline. Stop and verify the backend, scheduler and other
+  database users first; `--confirm` attests to that prerequisite. A SQLite
+  lock cannot establish that no idle process exists.
+- Validate source/revision/paths before changing the target. M6 restore
+  accepts `0005_budgets`; mismatched snapshots require a matching
+  release/migration procedure. Reject aliases/symlinks before modification.
+- Prepare a separate staged database; remove **all `sessions` rows there before
+  publication**. Rotating `SESSION_SECRET` alone does not revoke saved
+  session hashes. Keep the source snapshot immutable.
+- Preserve a verified pre-restore snapshot of an existing target. Corrupt or
+  otherwise unpreservable targets abort without replacement; inspect
+  checkpoint completion before removing old WAL/SHM; publish with
+  same-filesystem `os.replace`, not delete-then-copy. Retain recovery files
+  on failure and keep the backend stopped.
+- Preserve target ownership/permissions or abort. For a new recovery target,
+  prepare a private directory and run restore as the service identity UID/GID
+  `10001` so the new `0600` file is usable by the container. Windows uses
+  restricted NTFS ACLs; `chmod` is not a confidentiality proof.
+- The recovery Compose override requires an explicit isolated data path and
+  dedicated Caddy volumes; render and inspect it before restore, then run
+  restore → one-shot migration/current → start. Backend correction evidence is
+  recorded (`303 passed, 5 skipped`); POSIX/Windows actual-host proof remains
+  pending.
 
 ### Production hardening
 
@@ -130,11 +197,25 @@ npm run build
 npx playwright test
 ```
 
-Also executed the reachable disposable production checks: primary and recovery Compose projects started with `APP_ENV=production`, Caddy internal TLS served `lvh.me`, the backend remained unpublished, health returned `200`, API cache/security headers were observed, production docs/OpenAPI and unknown API routes returned `404`, and both migration/bootstrap and container recreation preserved the isolated database.
-
-The live backup/restore drill used the host scripts against the isolated primary database. The verified snapshot contained two accounts; restore reached revision `0005_budgets`, removed sessions, preserved the transaction and budget, the old recovery cookie returned `401`, fresh recovery login read the restored values, and a new transaction returned `201`. Chrome inspection covered both widths and the relevant ready/empty/loading/error/over-budget/accessibility states.
-
-Actual commands and results are recorded in `README.md`, `state.md`, `docs/LUNA_HANDOFF.md`, `docs/DEPLOYMENT.md`, and `docs/BACKUP_RESTORE.md`. No runtime claim in this handoff substitutes for the actual-environment release gate below.
+- Original disposable production-shaped checks and live backup/restore drill
+  remain historical evidence: primary/recovery Compose on `lvh.me`, healthy
+  Caddy HTTPS, unpublished backend, API/header/404 checks, migration and
+  recreation persistence, restored sessions denied, fresh recovery login and
+  transaction write were recorded before this correction pass.
+- Current correction evidence: backend `cd backend && python -m pytest -q` —
+  **303 passed, 5 skipped** (POSIX-only guards); frontend **13 files / 77 tests
+  passed**; production build passed; full Playwright **16 passed**; and
+  changed-path disposable smoke **2 passed** at 390px and 1280px. Compose
+  rendering verified fail-closed recovery data isolation and safe multi-bind
+  replacement; the smoke screenshots were disposable and are not retained.
+- All 11 `docs/DEPLOYMENT.md` §13 findings now carry repository-level closure
+  with named tests or probes. POSIX ownership/symlink/durability, Windows ACL,
+  corrected recovery execution and all actual-host/device/network gates remain
+  open.
+- Actual commands and results are recorded in `README.md`, `state.md`,
+  `docs/LUNA_HANDOFF.md`, `docs/DEPLOYMENT.md`, and
+  `docs/BACKUP_RESTORE.md`. No runtime claim in this handoff substitutes for
+  the actual-environment release gate below.
 
 ## Actual-Environment Release Gate
 
@@ -152,7 +233,11 @@ Unavailable host/devices are an external gate, not permission to invent evidence
 
 ## Final Delivery and Stop Boundary
 
-Current docs record the completed reachable proof. Throwaway Compose databases, backups, screenshots, and browser artifacts are removed during cleanup; retained source scripts, tests and operator guides remain.
+Current docs record the original reachable proof and the current correction
+boundary. Backend, frontend and documentation correction evidence is verified;
+actual-host release evidence remains pending. Throwaway Compose databases,
+backups, screenshots, and browser artifacts are removed during cleanup;
+retained source scripts, tests and operator guides remain.
 
 Final report must include:
 

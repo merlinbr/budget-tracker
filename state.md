@@ -2,9 +2,27 @@
 
 ## Current milestone
 
-**Milestone 6 — Settings, Export and Operations (implementation and disposable recovery verified; release candidate, deployment gates pending)**
+**Milestone 6 — Settings, Export and Operations (correction pass complete at
+repository level; actual-host deployment gates pending)**
 
-Milestones 1–5 remain completed and verified under their own gates. M6 adds protected profile/password/household settings, safe household-scoped CSV export, host-operated SQLite backup/restore, and production-shaped Compose hardening. The repository suites, real-backend browser workflows, disposable migration/recovery drill, HTTPS headers and desktop/phone visual inspection passed. Actual server/device/DNS/firewall/Tailscale/Emby/scheduler evidence remains an external release gate.
+Milestones 1–5 remain completed and verified under their own gates. M6 adds
+protected profile/password/household settings, safe household-scoped CSV
+export, host-operated SQLite backup/restore, and production-shaped Compose
+hardening. The original application/disposable evidence remains recorded
+below; the current correction pass verified backend, frontend and
+Compose/document changes with the §13 repository-level closures recorded in
+`docs/DEPLOYMENT.md`, while actual
+server/device/DNS/firewall/Tailscale/Emby/scheduler/recovery evidence remains
+open.
+
+**Current correction boundary:** all 11 `docs/DEPLOYMENT.md` §13 findings have
+repository-level closure recorded there with named tests or probes. Backend
+correction suite `cd backend && python -m pytest -q` — **303 passed, 5
+skipped** (POSIX-only symlink/ownership/mode guards). Frontend **13 files / 77
+tests**, production build passed, full Playwright **16 passed**, changed-path
+smoke passed at 390px and 1280px. Recovery Compose rendering proved fail-closed
+data isolation and safe port replacement. POSIX/Windows host behavior, the real
+recovery drill and §11 release evidence remain unverified.
 
 ## Completed
 
@@ -53,9 +71,34 @@ Milestones 1–5 remain completed and verified under their own gates. M6 adds pr
 - M5 final integrated checks: `cd backend && python -m pytest -p no:warnings` — **211 passed**; `cd frontend && npm test -- --watch=false` — **12 test files / 52 tests passed**; `npm run build` — **passed**; `npx playwright test` — **12 passed** at `1280×900` and `390×844`.
 - M5 disposable migration cycle: seeded M4 rows on `0004` (initial balance `100000`, September expense `-8472`) survived `0004 → 0005` unchanged; through the M5 app the seeded identity logged in, `GET /api/dashboard` returned expenses `8472`/balance `91528`/empty `budgets`, and `PUT /api/budgets/1` limit `60000` returned `remaining 51528`; downgrade to `0004` removed `budgets` and preserved every M4 row; re-upgrade re-reached head with empty `budgets` and unchanged dashboard totals; a separate empty database upgraded to head `0005_budgets`.
 - Focused M5 security review: no confirmed vulnerability in budget household predicates, CSRF coverage, atomicity/validate-before-commit ordering, integer-cent handling, overflow scoping, or financial logging (`backend/app/budgets.py` has no logger/print calls; the shared error logger records only method and path). This was a focused source review, not external penetration testing.
-- M6 focused and integrated verification: `cd backend && python -m pytest` — **286 passed, 244 warnings**; `cd frontend && npm test -- --watch=false` — **13 test files / 71 tests passed**; `npm run build` — **passed**; `npx playwright test` — **16 passed** at both widths with `workers: 1` to avoid cross-file writes racing in the shared disposable SQLite database.
-- M6 disposable Compose/recovery evidence: `APP_ENV=production` primary and recovery projects on `lvh.me` reached healthy Caddy HTTPS; API health returned `200`, unknown API and `/openapi.json`/`/docs`/`/redoc` returned `404`, headers included private/no-store/CSP/nosniff policy, backup captured the live two-account database, restore reached revision `0005_budgets` with `sessions=0`, old cookies returned `401`, fresh recovery login read restored values, and a new transaction returned `201`.
-- M6 visual/security review: real Chrome inspection covered desktop/phone login, dashboard, accounts, categories, transactions, budgets including readable over-budget state, and settings including populated data and errors. The mobile invalid-login regression now has no document overflow. Source/disposable review found no confirmed M6 vulnerability; this is not external penetration testing.
+- Original M6 focused/integrated verification (historical baseline):
+  `cd backend && python -m pytest` — **286 passed, 244 warnings**;
+  `cd frontend && npm test -- --watch=false` — **13 test files / 71 tests
+  passed**; `npm run build` — **passed**; `npx playwright test` — **16
+  passed** at both widths with `workers: 1`.
+- Original M6 disposable Compose/recovery evidence (historical baseline):
+  `APP_ENV=production` primary and recovery projects on `lvh.me` reached
+  healthy Caddy HTTPS; API health returned `200`, unknown API and
+  `/openapi.json`/`/docs`/`/redoc` returned `404`, headers included
+  private/no-store/CSP/nosniff policy, backup captured the live two-account
+  database, restore reached revision `0005_budgets` with `sessions=0`, old
+  cookies returned `401`, fresh recovery login read restored values, and a
+  new transaction returned `201`.
+- Original M6 visual/security review (historical baseline): real Chrome
+  inspection covered desktop/phone login, dashboard, accounts, categories,
+  transactions, budgets including readable over-budget state, and settings
+  including populated data and errors. The mobile invalid-login regression
+  had no document overflow. Source/disposable review found no confirmed M6
+  vulnerability; this is not external penetration testing.
+- Current correction-pass verification: frontend `npm test -- --watch=false`
+  — **13 files / 77 tests passed**; production build — **passed**; full
+  Playwright — **16 passed**; changed-path disposable smoke — **2 passed** at
+  390px and 1280px (the smoke screenshots were disposable and are not
+  retained). Recovery Compose
+  rendering verified fail-closed data isolation and safe multi-bind port
+  replacement. Backend correction suite
+  `cd backend && python -m pytest -q` — **303 passed, 5 skipped** (POSIX-only
+  guards); actual-host/§11 evidence remains open.
 
 The development Compose environment uses Caddy's internal CA; clients must trust
 that CA or use an explicit development-only certificate bypass.
@@ -69,8 +112,18 @@ that CA or use an explicit development-only certificate bypass.
 - Focused M4 review found no confirmed vulnerability in the dashboard household predicates, joined account/category name lookups, integer-cent precision, calendar bounds, request cancellation, 401 cleanup, or financial logging. `backend/app/dashboard.py` has no logger/print calls; the shared logger records only HTTP method and URL path. This was a focused source review, not external penetration testing.
 - Focused M5 review found no confirmed vulnerability in budget household predicates (`require_household` on every route; `household_id` present in every query and joined category lookup), CSRF coverage (`csrf_guard` is a global FastAPI dependency, so all three budget write routes are covered), atomic `BEGIN IMMEDIATE` writes that validate responses before commit and roll back on any exception, or financial logging (`backend/app/budgets.py` has no logger/print calls). This was a focused source review, not external penetration testing.
 - M6 security review found no confirmed vulnerability in settings/member household scope, password-change/session revocation, CSV query scoping and spreadsheet neutralization, backup/restore session removal, production host/origin validation, API cache policy, CSP/security headers, or backend port exposure. This was a focused source and disposable-environment review, not external penetration testing.
+- Correction-pass security status: backup/restore safety changes and the
+  settings/export regressions are implemented and verified by the backend and
+  frontend suites recorded above. POSIX ownership/symlink/durability, Windows
+  ACL and real recovery behavior remain unverified.
 
-Residual release boundary: the limiter remains intentionally in-memory and single-worker; behind Caddy, clients initially share the socket-IP bucket because arbitrary forwarded headers are not trusted. Real LAN/Tailscale reachability, trusted client CA installation, DNS/hostname validation, HSTS decision, firewall/IPv4/IPv6 denial, Emby-only denial, scheduler/permissions, and production restore remain unverified.
+Residual release boundary: the limiter remains intentionally in-memory and
+single-worker; behind
+Caddy, clients initially share the socket-IP bucket because arbitrary
+forwarded headers are not trusted. Real LAN/Tailscale reachability, trusted
+client CA installation, DNS/hostname validation, HSTS decision,
+firewall/IPv4/IPv6 denial, Emby-only denial, scheduler/permissions, and
+production restore remain unverified.
 
 ## Milestone checklist
 
@@ -85,4 +138,10 @@ Residual release boundary: the limiter remains intentionally in-memory and singl
 - [x] M6 / Task 6.2 — Deployment, backups, restore, and network boundary (production-shaped Compose, headers/CSP, WAL backup, offline restore, and recovery session denial verified; actual network boundary remains open)
 - [x] M6 / Task 6.3 — Complete MVP acceptance evidence (full suites, full-household workflow, migration/recovery proof, visual inspection, and release evidence recorded)
 
-Application and disposable recovery verification are complete. Release classification is **release candidate with deployment gates pending**; stop for user review before production rollout or publication. Do not claim the MVP accepted or production readiness until the real-host checklist passes.
+Baseline application/disposable recovery verification remains recorded above;
+the correction pass has backend, frontend and documentation evidence with the
+§13 repository-level closures recorded in `docs/DEPLOYMENT.md`, while actual
+release gates remain open. Release classification is **release candidate with
+deployment gates pending**; stop for user review before production rollout or
+publication. Do not claim the MVP accepted or production readiness until the
+real-host checklist passes.

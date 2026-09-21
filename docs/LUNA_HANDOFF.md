@@ -2,21 +2,64 @@
 
 ## Current Assignment
 
-**Milestone 6 — Settings, Export and Operations is implemented and verified through repository and disposable-recovery gates.** The current release classification is **release candidate with deployment gates pending**. The user initiated implementation after the approved plan; no commit, push, deployment, network-policy change or real-data restoration is authorized by this work.
+**Milestone 6 — Settings, Export and Operations has the correction pass
+complete at repository level; backend, frontend and documentation correction
+evidence is verified, while actual-host deployment gates remain pending.**
+The current release classification is **release candidate with deployment gates
+pending**. The user initiated implementation after the approved plan; no
+commit, push, deployment, network-policy change or real-data restoration is
+authorized by this work.
 
 M1–M5 evidence remains preserved below and in `README.md` / `state.md`. The M6 implementation is uncommitted working-tree work; preserve intervening user changes and review the complete diff before any publication.
 
-All reachable application, recovery, production-shaped Compose, full-suite, browser, and visual checks passed. Actual LAN/Tailscale/Emby/firewall/DNS/HSTS/scheduler and real-host recovery checks remain mandatory before an MVP-accepted or production-ready claim.
+The original application, recovery and production-shaped checks remain
+recorded below as historical evidence. The correction pass verified the
+backend, frontend and Compose/documentation paths, but actual
+LAN/Tailscale/Emby/firewall/DNS/HSTS/scheduler/host ownership/recovery checks
+remain mandatory before an MVP-accepted or production-ready claim.
 
 ## M6 Completion Evidence
 
-- **6.1 Settings/export:** `backend/app/settings.py` and `backend/app/export.py` provide household-scoped profile/member contracts and filtered spreadsheet-safe CSV. Wrong current passwords return `422` field validation without revoking the session; successful changes revoke every session. The guarded Angular `/settings` page covers profile, password, read-only household, CSV filters/download, and honest backup guidance.
-- **6.2 Recovery:** root `scripts/backup.py` and `scripts/restore.py` use stdlib SQLite backup/restore, validate revision/integrity/foreign keys, retain only script-owned snapshots, preserve a pre-restore target, remove staged sessions, and publish atomically. `docs/BACKUP_RESTORE.md` documents offline operation, scheduler choices, permissions, and the separate recovery stack.
-- **6.2 Production shape:** strict production settings, database-backed health, no published backend port, one worker/no proxy-header trust, static CSP/security headers, API no-store, Caddy internal TLS, and explicit 404 protection for `/openapi.json`, `/docs`, `/redoc`, and unknown API paths are implemented and documented in `docs/DEPLOYMENT.md`.
-- **6.3 integrated proof:** `cd backend && python -m pytest` — **286 passed, 244 warnings**; `cd frontend && npm test -- --watch=false` — **13 files / 71 tests passed**; `npm run build` — **passed**; `npx playwright test` — **16 passed** at `1280×900` and `390×844` with one worker for the shared disposable SQLite database.
-- Disposable production-shaped primary/recovery Compose on `lvh.me` reached healthy HTTPS; the live backup included two accounts, restore reached `0005_budgets` with `sessions=0`, the old cookie returned `401`, fresh recovery login read the restored dashboard, and a post-recovery transaction returned `201`.
-- Real Chrome inspection covered login, dashboard, accounts, categories, transactions, budgets (including readable over-budget state), and settings at desktop and phone widths. The mobile invalid-login overflow was fixed and regressed.
-- Focused M6 source/security review found no confirmed vulnerability; this is not external penetration testing. The full release gate remains open for actual server/device/network evidence.
+- **6.1 Settings/export:** `backend/app/settings.py` and
+  `backend/app/export.py` provide household-scoped profile/member contracts
+  and filtered spreadsheet-safe CSV. Wrong current passwords return `422`
+  field validation without revoking the session; successful changes revoke
+  every session. The guarded Angular `/settings` page covers profile,
+  password, read-only household, CSV filters/download, and honest backup
+  guidance. Correction-pass frontend evidence is **13 files / 77 tests**,
+  production build passed, full Playwright passed **16**, and changed-path
+  disposable smoke passed at both widths.
+- **6.2 Recovery:** root `scripts/backup.py` and `scripts/restore.py`
+  implement the approved stdlib SQLite backup/restore safety contracts,
+  including completed-snapshot schema/FK checks, corrupt-target abort,
+  ownership preserve-or-abort, non-regular sidecar refusal, and retained
+  rollback artifacts. `docs/BACKUP_RESTORE.md` documents the corrected
+  offline order and isolated recovery override. POSIX/Windows actual-host
+  proof remains pending (`303 passed, 5 skipped` on this Windows host).
+- **6.2 Production shape:** strict production settings, database-backed
+  health, no published backend port, one worker/no proxy-header trust, static
+  CSP/security headers, API no-store, Caddy internal TLS, and explicit 404
+  protection for `/openapi.json`, `/docs`, `/redoc`, and unknown API paths are
+  implemented and documented in `docs/DEPLOYMENT.md`. Local Compose rendering
+  verified fail-closed recovery data isolation and safe multi-bind replacement;
+  real host acceptance remains open.
+- **6.3 integrated proof:** the original integrated baseline recorded
+  `backend` **286 passed, 244 warnings**, frontend **13 files / 71 tests**,
+  build passed and Playwright **16 passed**. The correction-pass results are
+  `backend` **303 passed, 5 skipped** (POSIX-only guards), frontend **13 files /
+  77 tests**, build passed, Playwright **16 passed**, plus changed-path smoke
+  at 390px and 1280px.
+- Earlier disposable production-shaped primary/recovery Compose, live
+  backup/restore and browser results remain historical evidence; they do not
+  substitute for rerunning the corrected recovery flow or actual-host gates.
+- Real Chrome inspection covered login, dashboard, accounts, categories,
+  transactions, budgets (including readable over-budget text), and settings
+  at desktop and phone widths. The mobile invalid-login overflow was fixed
+  and regressed.
+- Focused M6 source/security review found no confirmed vulnerability in the
+  original scope; this is not external penetration testing. The correction pass
+  records repository-level closure for all 11 §13 findings with named evidence;
+  POSIX/Windows host and actual-environment evidence remains open.
 
 Stop for user review before production rollout or publication. Do not treat disposable Compose or local browser evidence as LAN/Tailscale/Emby/firewall acceptance.
 
