@@ -5,9 +5,6 @@
 	"tagOwners": {
 		"tag:budget": ["autogroup:admin"]
 	},
-	"hosts": {
-		"100.64.0.0/10": "tailnet"
-	},
 	"grants": [
 		{
 			"src": ["group:household"],

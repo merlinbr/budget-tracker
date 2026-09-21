@@ -32,15 +32,18 @@ private operations notes — do not commit them):
 python C:/Users/merli/Documents/Projects/budget-tracker/scripts/backup.py --database C:/Users/merli/Documents/Projects/budget-tracker/data/budget.db --destination D:/backups/budget --keep-days 30
 ```
 
-Behavior, verified by `backend/tests/test_backup_restore.py` (19 tests):
+Behavior, verified by `backend/tests/test_backup_restore.py`:
 
 - Opens the source with SQLite `mode=ro`; a typo'd path fails instead of
   creating a new empty database (`source database not found`, exit 1).
 - Uses `sqlite3.Connection.backup()`, so a **live WAL database** is safe to
   copy while the backend writes (`test_backup_live_writer_snapshot_is_consistent`).
-- Validates revision `0005_budgets`, `PRAGMA integrity_check`, and
-  `PRAGMA foreign_key_check` on the staged copy before publishing; failures
-  exit nonzero and print only path/revision context.
+- Validates the source and the **completed standalone staged snapshot** for
+  revision `0005_budgets`, `PRAGMA integrity_check`, the required schema
+  (`alembic_version` plus the Budget tables `users`, `households`,
+  `household_members`, `sessions`, `accounts`, `categories`, `transactions`,
+  `budgets`), and `PRAGMA foreign_key_check` before publishing; failures exit
+  nonzero and print only path/revision context.
 - Publishes atomically as `budget-<YYYYMMDDtHHMMSSz>.sqlite`; repeated runs
   within the same second never collide or overwrite
   (`test_backup_publishes_unique_names_on_repeat`).
@@ -134,6 +137,9 @@ Verified behavior (`backend/tests/test_backup_restore.py`):
   `test_restore_wrong_revision_refused`). Older/newer snapshots require the
   matching application release and an explicit migration procedure, not
   schema guessing.
+- Rejects identical or aliased source/target paths and direct symlink
+  arguments before staging or modifying the target; the source snapshot is
+  never used as the target.
 - Stages a fresh copy from the snapshot, then **deletes every `sessions`
   row** — rotating `SESSION_SECRET` alone does not revoke saved session
   hashes; deleting the rows does
@@ -142,49 +148,153 @@ Verified behavior (`backend/tests/test_backup_restore.py`):
   password state; reset affected accounts offline before reopening access.
 - Never edits the source snapshot; its bytes are unchanged after a restore
   (`test_restore_preserves_snapshot_bytes`).
-- Preserves a damaged or healthy existing target as
-  `budget-pre-restore-<UTC timestamp>.sqlite` next to it before replacing it;
-  if preservation fails, the restore aborts without touching the target.
-  Keep pre-restore files until the drill is accepted, then prune manually.
+- Preserves a healthy existing target as
+  `budget-pre-restore-<UTC timestamp>.sqlite` next to it before replacing it.
+  Names are collision-safe, so a same-second restore never overwrites an
+  earlier recovery file. If preservation fails, including because the existing
+  target is corrupt or cannot pass the completed-snapshot checks, the restore
+  aborts before touching the target; retain that corrupt target for manual
+  recovery (there is no force-delete or raw-copy fallback).
 - Publishes with `os.replace` in the target directory (no delete-then-copy
   window) and removes only the target's obsolete `-wal`/`-shm` sidecars after
   preservation succeeds.
-- On POSIX, the restored file is `0600`. Preserve target owner UID/GID if the
-  previous file had non-root ownership: `chown 10001:10001 <database>` after
-  a restore into a directory owned by UID 10001 (the container's runtime
-  user), so the backend can write again. On Windows, confidentiality relies
-  on NTFS ACLs, not `chmod`; restrict the file to the administrator/service
-  account.
+- On POSIX, an existing target's owner UID/GID and mode are applied to the
+  restored file before replacement; a new target is mode `0600`. If required
+  ownership or destination access cannot be preserved, the restore aborts
+  before replacement. On Windows, confidentiality relies on NTFS ACLs, not
+  `chmod`; restrict the file to the administrator/service account.
+- If publication or post-publication cleanup/durability fails, keep the
+  verified source and pre-restore files, leave the backend stopped, and retain
+  any recovery directory named by the failure for inspection. Do not restart
+  until the retained files and target state have been reviewed.
 
 ### Recovery stack (separate from production)
 
-Drill restores into a **separate Compose project with its own volumes** —
-never the production project, and never `down -v` on production volumes:
+Drill restores into a **separate Compose project and data directory** —
+never the production project, never the production `data/` bind mount, and
+never `down -v` on production volumes. The base `docker-compose.yml` binds
+`./data`; `docker-compose.recovery.yml` requires `RECOVERY_DATA_DIR` and
+rebinds `/app/data` to that path. It also uses dedicated Caddy data/config
+volumes. Keep the recovery backend and Caddy stopped while preparing the
+database.
+
+Create a recovery env file with values that cannot resolve to production:
 
 ```text
-# example: production project name budget; recovery project budget-recovery
-docker compose -p budget-recovery -f docker-compose.yml --env-file .env.recovery up -d backend
+mkdir recovery-data
+cp .env .env.recovery
 ```
 
-While the backend is still offline, run migrations once with a one-shot
-container, then inspect the revision and start:
+Edit `.env.recovery` before continuing. Keep the normal application variables
+and set at least:
 
 ```text
-docker compose -p budget-recovery run --rm backend alembic upgrade head
-docker compose -p budget-recovery exec backend alembic current
+APP_ENV=production
+RECOVERY_DATA_DIR=<absolute-path-to-recovery-data>
+SESSION_SECRET=<new-token_urlsafe(48)-value>
+BUDGET_HOST=<recovery-hostname>
+ALLOWED_ORIGINS=https://<recovery-hostname>:8444
+TRUSTED_HOSTS=<recovery-hostname>
+HTTPS_BIND_ADDRESS=127.0.0.1
+HTTPS_PORT=8444
 ```
+
+The recovery project name, env-file flag and both Compose files are part of
+every command below. Before touching the recovery database, render and inspect
+the effective configuration:
+
+```text
+docker compose -p budget-recovery -f docker-compose.yml -f docker-compose.recovery.yml --env-file .env.recovery config --format json
+```
+
+Continue only when the rendered JSON shows exactly one backend bind mount to
+`/app/data` whose source equals the absolute path configured in
+`RECOVERY_DATA_DIR` (not the checkout's `data/`),
+the Caddy service targets `/data` and `/config` through the override's
+`recovery_caddy_data`/`recovery_caddy_config` volumes, whose top-level names
+are `budget-recovery-caddy-data` and `budget-recovery-caddy-config`, Caddy's
+one loopback mapping `127.0.0.1:8444->443`, and no backend host port. If any
+value is wrong, stop and fix `.env.recovery` or the override; do not restore
+or start anything.
+
+If this recovery project already exists, stop it and verify it is stopped:
+
+```text
+docker compose -p budget-recovery -f docker-compose.yml -f docker-compose.recovery.yml --env-file .env.recovery stop backend caddy
+docker compose -p budget-recovery -f docker-compose.yml -f docker-compose.recovery.yml --env-file .env.recovery ps
+```
+
+After the mount inspection, prepare ownership **before creating the new
+target**; do not run a root-owned restore into a new target and plan to fix it
+with a post-restore `chown`. On POSIX, use a host account whose numeric UID and
+GID are both `10001` (the container runtime identity), keep the source copy
+private, and run the restore as that account:
+
+```text
+# Replace placeholders before running these commands.
+SERVICE_ACCOUNT=budget
+SNAPSHOT=<absolute-snapshot-path>
+RECOVERY_DATA_DIR=<absolute-recovery-data-path>
+test "$(id -u "$SERVICE_ACCOUNT")" = 10001
+test "$(id -g "$SERVICE_ACCOUNT")" = 10001
+sudo install -d -o 10001 -g 10001 -m 700 "$RECOVERY_DATA_DIR"
+sudo install -o 10001 -g 10001 -m 600 "$SNAPSHOT" "$RECOVERY_DATA_DIR/.restore-source.sqlite"
+sudo -u "$SERVICE_ACCOUNT" -- python <repo>/scripts/restore.py --backup "$RECOVERY_DATA_DIR/.restore-source.sqlite" --database "$RECOVERY_DATA_DIR/budget.db" --confirm
+```
+
+The private source copy and any pre-restore/recovery files stay in place until
+the drill is accepted. On Windows, there is no POSIX UID mapping to preserve:
+use a private NTFS directory, remove inherited broad access, grant the
+administrator and the Docker Desktop/engine identity that actually accesses
+the bind mount, and verify the one-shot migration can read and write it.
+`chmod` alone is not a Windows confidentiality check. For example:
+
+```text
+mkdir <absolute-recovery-data-path>
+icacls <absolute-recovery-data-path> /inheritance:r /grant:r "<operator-account>":(OI)(CI)F
+copy <absolute-snapshot-path> <absolute-recovery-data-path>\.restore-source.sqlite
+python <repo>\scripts\restore.py --backup <absolute-recovery-data-path>\.restore-source.sqlite --database <absolute-recovery-data-path>\budget.db --confirm
+```
+
+For an existing target, the script preserves its owner UID/GID and mode or
+aborts before replacement; a corrupt target is retained for manual recovery.
+After these offline restore steps, migrate and inspect the revision with
+one-shot containers. Do not start the backend before migration succeeds:
+
+```text
+docker compose -p budget-recovery -f docker-compose.yml -f docker-compose.recovery.yml --env-file .env.recovery run --rm --no-deps backend alembic upgrade head
+docker compose -p budget-recovery -f docker-compose.yml -f docker-compose.recovery.yml --env-file .env.recovery run --rm --no-deps backend alembic current
+```
+
+Proceed only when `alembic current` reports `0005_budgets (head)`. Then start
+the complete recovery stack and verify the resolved bindings:
+
+```text
+docker compose -p budget-recovery -f docker-compose.yml -f docker-compose.recovery.yml --env-file .env.recovery up -d
+docker compose -p budget-recovery -f docker-compose.yml -f docker-compose.recovery.yml --env-file .env.recovery ps
+docker compose -p budget-recovery -f docker-compose.yml -f docker-compose.recovery.yml --env-file .env.recovery port caddy 443
+docker compose -p budget-recovery -f docker-compose.yml -f docker-compose.recovery.yml --env-file .env.recovery port backend 8000
+```
+
+The Caddy command must show only `127.0.0.1:8444`; the backend command must
+report no published port. Keep the verified source snapshot and any
+pre-restore archive until the drill is accepted. If restore or startup fails,
+leave the recovery services stopped and retain the reported recovery files for
+inspection; do not fall back to the production project.
 
 Proof drill (executed with scripts/backup.py + scripts/restore.py against a
 disposable directory; see backend/tests/test_backup_restore.py::test_backup_restore_full_drill):
 
 1. `python scripts/backup.py --database <db> --destination <dir> --keep-days 30`
-2. Damage or discard the live database.
-3. `python scripts/restore.py --backup <snapshot> --database <offline-db> --confirm`
-4. `python -c "import sqlite3; c=sqlite3.connect('<offline-db>'); print(c.execute('SELECT count(*) FROM sessions').fetchone()[0], c.execute('SELECT count(*) FROM transactions').fetchone()[0])"`
+2. Render and inspect the recovery Compose configuration as above; do not
+   touch the production `data/` directory.
+3. Restore with `scripts/restore.py` into the rendered recovery data directory.
+4. Run the one-shot migration and `alembic current`; only then start the
+   recovery stack.
+5. `python -c "import sqlite3; c=sqlite3.connect('<offline-db>'); print(c.execute('SELECT count(*) FROM sessions').fetchone()[0], c.execute('SELECT count(*) FROM transactions').fetchone()[0])"`
    → `0 1` (sessions empty, transactions preserved).
-5. Start the recovery backend with the restored database, expect old cookies
-   to get **401**, fresh login to read restored values, and a subsequent new
-   write to succeed.
+6. Expect old cookies to get **401**, fresh login to read restored values, and
+   a subsequent new write to succeed.
 
 ## Worth knowing
 
@@ -197,8 +307,9 @@ disposable directory; see backend/tests/test_backup_restore.py::test_backup_rest
   `alembic upgrade head` in a stopped backend before backing up.
 - CA private key/state recovery lives in deployment documentation
   (`docs/DEPLOYMENT.md`), separate from these database snapshots.
-- Drill at least **monthly and before every upgrade**: backup → restore into
-  the recovery stack → login → totals match → delete pre-restore archives.
+- Keep **30 calendar days of completed snapshots**. Run a recovery drill before
+  upgrades and on the operator's chosen periodic schedule; offsite copies are
+  optional and are not an MVP prerequisite.
 
 ## Disposable recovery evidence
 
@@ -224,5 +335,6 @@ isolated data mounts intact; all disposable containers, volumes, snapshots and
 screenshots were removed after verification.
 
 This proves the reachable local drill only. The actual server scheduler,
-permissions, off-host retention, client CA trust and production restore remain
-operator release gates.
+permissions, client CA trust and production restore remain operator release
+gates. Off-host/weekly/monthly retention tiers are optional post-MVP work, not
+a release gate.

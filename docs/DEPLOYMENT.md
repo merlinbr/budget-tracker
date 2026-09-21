@@ -6,6 +6,11 @@ rollback. Actual host/device/network acceptance checks (Release checklist at
 the bottom) must be performed by the operator with real inputs; this document
 never substitutes for them.
 
+> **Release hold — readiness review, 2026-09-20:** M6 has open implementation
+> defects as well as unverified deployment gates. See §13 for the findings,
+> evidence and closure criteria. The corrected examples below still do not
+> close §13 or substitute for real-host, device, scheduler and network checks.
+
 This stack is private by design:
 
 - No public registration, no public reverse proxy, no Tailscale Funnel.
@@ -35,7 +40,7 @@ missing variables refuse to start the stack).
 | `TRUSTED_HOSTS` | exact hostnames the backend accepts as `Host:` | comma-separated exact hostnames; no wildcards, no URLs, no loopback; first entry drives the internal health probe |
 | `SECURE_COOKIES` | Secure flag on session/CSRF cookies | `true` in production |
 | `BUDGET_HOST` | hostname Caddy serves the SPA and API under | must match a `TRUSTED_HOSTS` entry and an `ALLOWED_ORIGINS` hostname |
-| `HTTPS_BIND_ADDRESS` | host address(es) Caddy publishes HTTPS on | intended LAN/tailnet address, never `0.0.0.0` for convenience |
+| `HTTPS_BIND_ADDRESS` | the single host address Caddy publishes HTTPS on | intended LAN or tailnet address, never `0.0.0.0` for convenience |
 | `HTTPS_PORT` | host port for HTTPS | 443 ideal; any free private port works |
 
 Generate the session secret on the server:
@@ -60,13 +65,37 @@ ALLOWED_ORIGINS=https://budget.home.internal
 TRUSTED_HOSTS=budget.home.internal
 SECURE_COOKIES=true
 BUDGET_HOST=budget.home.internal
-HTTPS_BIND_ADDRESS=192.168.1.10,100.90.50.6
+HTTPS_BIND_ADDRESS=192.168.1.10
 HTTPS_PORT=443
 ```
 
-Compose publishes HTTPS on one binding; if you list a comma-separated set of
-addresses, verify with `docker compose port` (§5) that every resolved mapping is
-intended. Never rely on `0.0.0.0` here for convenience.
+Use one address per Compose port mapping. Do not comma-separate
+`HTTPS_BIND_ADDRESS`: the root Compose file interpolates it into one mapping,
+and a comma-separated value is not an IP address.
+
+For more than one interface, use a Compose v2.24.4+ override with the
+`!override` tag so the base port list is replaced rather than merged:
+
+```yaml
+# docker-compose.multi-bind.yml
+services:
+  caddy:
+    ports: !override
+      - "192.168.1.10:443:443"
+      - "100.90.50.6:443:443"
+```
+
+Render and inspect the result before starting; it must contain exactly those
+two host mappings and no stale base mapping:
+
+```text
+docker compose -f docker-compose.yml -f docker-compose.multi-bind.yml config
+docker compose -f docker-compose.yml -f docker-compose.multi-bind.yml port caddy 443
+```
+
+On older Compose versions, use one address or upgrade before attempting this
+override. Never layer a plain `ports:` list over the base file because Compose
+can retain the base mapping as well. Never rely on `0.0.0.0` for convenience.
 
 ## 3. Data and ownership
 
@@ -200,8 +229,9 @@ then re-attempt only with the corrected release.
   paths (Linux Docker publishing bypasses plain `ufw INPUT` chains; check the
   Docker/packet-filtering backend actually in use on the server).
 - Tailscale Grants are **additive**: budget must be one explicit grant; audit
-  the existing policy for anything broader. See
-  `docs/tailscale-policy.example.json` and its merge instructions.
+  the existing policy for anything broader. The example is a syntax-validated
+  fragment, not an applied policy; review the complete tailnet policy before
+  merging it. See `docs/tailscale-policy.example.json`.
 - Behind Caddy, all clients share one source IP to the backend; the login
   rate limiter buckets that shared socket IP. User-specific buckets remain
   separate. Fine-grained per-client proxy tuning is explicitly out of scope.
@@ -226,8 +256,10 @@ These headers must be observed on the live deployment (already enforced in
 
 The release record must link **each row** to a concrete command, observed
 result, and evidence (date + command + result). Rows left unchecked keep the
-milestone at *release candidate — deployment gates pending*, not *MVP
-complete*.
+milestone at *release candidate — repository fixes recorded, deployment gates
+pending*, not *MVP complete*. The §13 findings are closed at repository level
+(2026-09-21) with named test/probe evidence; the host-gated rows in §11 and the
+residual platform items recorded in §13 still require the real environment.
 
 | # | Required evidence | How to check |
 |---|---|---|
@@ -271,3 +303,252 @@ This is disposable local evidence only. Real hostname/certificate trust,
 LAN/Tailscale reachability, firewall/IPv4/IPv6 denial, Emby-only denial,
 HSTS, scheduler permissions and production backup/restore remain unchecked in
 the release checklist above.
+
+## 13. Findings from MVP readiness review — 2026-09-20 (repository-level corrections recorded 2026-09-21; release acceptance open)
+
+**Status:** repository-level corrective checks for all 11 findings were
+recorded on 2026-09-21 and are marked `[x]` below with the test or probe that
+proves each one. Repository-level closure is **not** release acceptance:
+POSIX/Windows host behavior, the real recovery drill, the scheduler and the
+§11 network/device rows remain open, and the MVP is not accepted until §11
+passes and the user completes release review. Findings the original review
+runtime-reproduced are labeled as such; source-reviewed inference and
+platform-gated cases are named explicitly in each closure line. Earlier
+statements in `state.md` and the milestone handoffs that only external
+deployment gates remained overstated completion; this correction pass replaces
+them with the implementation, local-evidence and actual-host distinctions
+recorded below.
+
+### Verification performed during the original review
+
+- `cd backend && python -m pytest`: **286 passed, 244 deprecation warnings**.
+- `cd frontend && npm test -- --watch=false`: **13 files / 71 tests passed**.
+- `cd frontend && npm run build`: **passed**.
+- `cd frontend && npx playwright test`: **16 passed**, including desktop/mobile
+  household workflows against a disposable real backend.
+- Inspected fresh populated dashboard screenshots at 1280px and 390px.
+- Ran additional disposable Python/Compose probes and authenticated browser
+  checks described below. No real financial data, production stack or network
+  policy was modified. The assessment databases and services were removed.
+- Did not repeat the earlier production-shaped Compose recovery drill or
+  perform any actual-host/device acceptance checks.
+
+### Correction-pass evidence and remaining gates
+
+- Frontend correction work: `npm test -- --watch=false` — **13 files /
+  77 tests passed**; production build — **passed**; full Playwright —
+  **16 passed**. The changed-path disposable smoke passed at both 390px and
+  1280px (the smoke screenshots were disposable and are not retained).
+- Recovery/deployment documentation correction: Compose rendering proved the
+  required recovery data path fails closed when omitted, resolves away from
+  production `data/`, keeps backend 8000 unpublished, uses recovery Caddy
+  volumes, and renders the explicit loopback recovery port. The `!override`
+  multi-bind example rendered exactly two host mappings without retaining the
+  base mapping.
+- Backup/restore implementation corrections are present, including completed
+  snapshot schema/FK checks, corrupt-target abort, ownership-preserve-or-abort,
+  non-regular sidecar refusal, checkpoint/directory flushing and retained
+  rollback artifacts. Backend correction evidence:
+  `cd backend && python -m pytest -q` — **303 passed, 5 skipped** (the skips
+  are POSIX-only symlink/ownership/mode guards on this Windows host; their
+  real-host proof remains §11 work).
+- POSIX ownership/symlink/durability, Windows ACL, real recovery, scheduler,
+  client trust and network checks remain actual-environment gates; §11 is not
+  accepted.
+
+### Recovery, production validation and operator instructions
+
+1. **[x] Recovery instructions do not isolate production data — release blocker.**
+   `BACKUP_RESTORE.md`, “Recovery stack (separate from production)”, changes the
+   Compose project name but uses `docker-compose.yml` with its hardcoded
+   `./data:/app/data` bind mount. A read-only `docker compose ... -p
+   budget-recovery config --format json` probe resolved that same checkout data
+   directory, not an isolated recovery directory. The example also starts the
+   backend before its purported offline migration step.
+   **Close when:** the documented drill resolves to explicitly separate data
+   mounts and performs restore/migration before starting the recovery backend.
+   **Repository-level closure recorded 2026-09-21.** `docker-compose.recovery.yml`
+   binds `${RECOVERY_DATA_DIR:?}` (omitting it fails Compose with exit 1) and render
+   inspection showed the backend mount resolves to the recovery directory, never the
+   checkout `data/`; `BACKUP_RESTORE.md` orders render → stop/verify → restore →
+   one-shot `alembic upgrade head`/`current` → `up -d`. Remaining host-gated item: an
+   actual recovery run with host ownership/ACL proof (§11).
+
+2. **[x] Restore accepts source/target aliases — reproduced release blocker.**
+   In `scripts/restore.py`, using the same disposable database for `--backup`
+   and `--database` returned success, changed the source snapshot's hash and
+   removed its sessions. Path resolution also follows symlinks rather than
+   rejecting unsafe targets.
+   **Close when:** identical paths, filesystem aliases and symlink targets are
+   rejected before modification, with source snapshot bytes preserved.
+   **Repository-level closure recorded 2026-09-21.**
+   `test_restore_rejects_identical_paths` and `test_restore_rejects_aliased_paths`
+   (runnable and passing on this Windows host) prove refusal before modification with
+   the source snapshot's bytes and sessions preserved; the POSIX symlink case is
+   covered by `test_restore_rejects_symlink_target`, which skips here and remains an
+   §11 host row.
+
+3. **[x] Restore staging and preservation violate the approved safety contract.**
+   Source review of `scripts/restore.py` found system-temp staging rather than
+   target-filesystem staging; non-private shared staging-directory creation;
+   permissions tightened only after publication; no target UID/GID preservation;
+   second-resolution pre-restore names published with overwrite-capable
+   `os.replace`; a raw-copy fallback for corrupt targets instead of a safe
+   abort; and no explicit file/directory flush step where supported.
+   **[INFERENCE]:** separate filesystems can make replacement fail, POSIX
+   staging may expose sensitive data, root-run restoration can leave the
+   service unable to open its database, and same-second preservation can
+   overwrite a prior recovery file. These platform/collision cases were not
+   runtime-reproduced in this review.
+   **Close when:** restore meets the approved M6 plan §2.4 requirements for
+   private same-filesystem staging, ownership, unique verified preservation,
+   corrupt-target refusal and durable publication. Manual post-restore `chown`
+   is not equivalent to the approved preserve-or-abort behavior.
+   **Repository-level closure recorded 2026-09-21.** `scripts/restore.py` now stages
+   private same-filesystem copies, publishes unique no-clobber preserves, aborts on
+   corrupt targets, preserves-or-aborts on ownership/mode, refuses non-regular
+   sidecars, checkpoints the offline target, flushes files/directories and retains a
+   named recovery directory on rollback or cleanup failure. Covered by
+   `test_restore_stages_privately_on_target_filesystem`,
+   `test_restore_preservation_names_unique_same_second`,
+   `test_restore_corrupt_target_aborts_without_replacement`,
+   `test_restore_post_publication_cleanup_failure_names_retained_dir` and the sidecar
+   parking/rollback regressions; `test_restore_preserves_target_mode_and_owner` and
+   the dangling-path case skip on Windows and remain §11 host rows.
+
+4. **[x] Backup verification and bounded execution are incomplete.**
+   A disposable database containing only `alembic_version=0005_budgets` was
+   successfully published by `scripts/backup.py`. Source review also found that
+   foreign keys are checked on an earlier source connection, not the completed
+   snapshot; required Budget tables are not verified; source/path safety checks
+   are incomplete; the SQL progress handler does not bound the backup API's
+   busy/retry duration; and explicit publication flushing is absent.
+   **Close when:** the completed standalone snapshot passes integrity,
+   foreign-key and required-schema checks; unsafe paths are rejected; busy
+   backup execution has an actual deadline; publication follows plan §2.4.
+   Correct the guide's claim that staged foreign-key validation already occurs.
+   **Repository-level closure recorded 2026-09-21.**
+   `test_backup_rejects_revision_only_database` and
+   `test_backup_rejects_missing_required_table` prove the completed snapshot is
+   validated for required schema, integrity and foreign keys, so the guide's
+   staged-validation claim now matches `_verify_snapshot`;
+   `test_backup_wall_clock_deadline_interrupts_copy` proves the backup API callback
+   enforces the wall-clock bound, and publication flushes file and directory.
+   Source/destination symlink refusal skips on Windows
+   (`test_backup_rejects_symlink_source`/`_destination`) and remains an §11 host row.
+
+5. **[x] Production trusted-host validation accepts wildcard patterns — reproduced.**
+   `Settings` in `backend/app/config.py` accepted
+   `budget.example.internal,*.example.internal` with the matching exact HTTPS
+   origin. `_is_exact_trusted_host` rejects bare `*`, but not the extra pattern.
+   **Close when:** all wildcard patterns are rejected even when a separate
+   exact host satisfies origin matching; preserve this case in validation.
+   **Repository-level closure recorded 2026-09-21.**
+   `test_production_rejects_invalid_trusted_hosts` now includes the reproduced mixed
+   rows (`["budget.example.internal", "*.example.internal"]` and
+   `["budget.example.internal", "*"]`) and passes with `_is_exact_trusted_host`
+   rejecting any `*`; the full `tests/test_config.py` suite is 38 passed. No
+   host-gated residual.
+
+6. **[x] The documented multi-interface binding is invalid — reproduced.**
+   The §2 value `HTTPS_BIND_ADDRESS=192.168.1.10,100.90.50.6` is interpolated
+   into a single Compose port mapping. `docker compose config --quiet` failed
+   with `invalid IP address: 192.168.1.10,100.90.50.6`.
+   **Close when:** the guide uses one address per explicit port mapping and
+   verifies the resolved mappings. A comma-separated environment value does
+   not create multiple bindings.
+   **Repository-level closure recorded 2026-09-21.** The guide uses one address per
+   mapping and a `!override` multi-bind example documented as Compose v2.24.4+ (the
+   first version that replaces instead of merging); render inspection produced exactly
+   the two host mappings with no retained base mapping. Actual host
+   binding/firewall checks remain §11 gates.
+
+7. **[x] The Tailscale policy example reverses host-alias syntax.**
+   `tailscale-policy.example.json` maps `"100.64.0.0/10": "tailnet"`.
+   [Tailscale's hosts syntax](https://tailscale.com/docs/reference/syntax/policy-file#hosts)
+   requires alias name → IP/CIDR.
+   **Close when:** correct or remove the unused alias and validate the example.
+   Applying policy still requires review of the complete existing additive
+   Grants/ACL policy; correcting this file does not prove Emby isolation.
+   **Repository-level closure recorded 2026-09-21.** The reversed alias is removed;
+   the file parses as JSON and matches the reviewed
+   groups/tagOwners/grants/tests shape. The example was not applied, and
+   complete-policy review plus Emby isolation remain open-policy/§11 work.
+
+### Settings and CSV acceptance gaps
+
+8. **[x] Password validation silently blocks submission — browser-reproduced.**
+   Matching short new/confirmation passwords leave the form invalid with empty
+   feedback. In `frontend/src/app/features/settings/settings.page.html`, the
+   new-password input references a nonexistent `new-password-error`; local
+   current/new-password hints are not rendered.
+   **Close when:** required/length errors identify and are associated with the
+   relevant inputs, including a missing or short current password.
+   **Repository-level closure recorded 2026-09-21.** `settings.page.spec.ts` asserts
+   aria-invalid, aria-describedby and the rendered required/length messages for the
+   current and new password inputs with no request sent; the disposable 390px/1280px
+   browser smoke reproduced the original short-password submit and confirmed the
+   associated errors. Release acceptance remains an §11/user-review step.
+
+9. **[x] Successful profile save has no success announcement — browser-reproduced.**
+   The display name and household member name updated, but the profile status
+   live region remained empty. `settings.page.ts` sets no success feedback.
+   **Close when:** successful persistence produces the announced confirmation
+   required by the approved M6 profile contract.
+   **Repository-level closure recorded 2026-09-21.** The profile status element
+   (`#profile-status`, role=status, aria-live=polite) carries the confirmation and is
+   reset at each attempt; the spec asserts both, and the 390px/1280px smoke confirmed
+   the announced text after a real save. Release acceptance remains an
+   §11/user-review step.
+
+10. **[x] CSV API error Blobs lose field explanations — browser-reproduced.**
+    A real export request with `from=10000-01-01` returned HTTP 422 with a
+    `fields.from` explanation. The UI displayed only “Could not download the
+    CSV.” `settings.service.ts` requests a Blob; `settings.page.ts` treats its
+    error body as an already-decoded JSON object. Export controls also lack
+    associations with field feedback.
+    **Close when:** decode the shared JSON error envelope from the Blob and
+    present associated field errors without downloading an error response.
+    **Repository-level closure recorded 2026-09-21.** The service decodes the
+    `{error:{message,fields}}` envelope from Blob bodies; the spec flushes a real JSON
+    Blob with status 422 and asserts the server message, the `from` explanation,
+    associated `#export-*-error` paragraphs, and that download stays pending until
+    decoding finishes; the browser smoke reproduced the original
+    `from=10000-01-01` 422 with no download. Release acceptance remains an
+    §11/user-review step.
+
+11. **[x] Date-only export disappears after selector lookup failure — browser-reproduced.**
+    With an injected account-lookup HTTP failure against the disposable app,
+    both date inputs disappeared while unfiltered Download remained enabled.
+    `settings.page.html` places the date controls inside the selectors' ready
+    branch, contrary to the independent date-only export contract.
+    **Close when:** date-only and unfiltered export remain usable when account
+    or category lookups fail.
+    **Repository-level closure recorded 2026-09-21.** Date inputs render outside the
+    selector branch; the spec asserts date-only export with `from` set and no
+    `accountId` after the accounts lookup fails (and unfiltered export while selectors
+    are still loading), with stale selector ids pruned from the request; the browser
+    smoke reproduced the selector-failure scenario and completed a real date-only CSV
+    download. Release acceptance remains an §11/user-review step.
+
+### Test and documentation follow-through
+
+- The original review's weak/misnamed tests were corrected rather than re-pinned:
+  the date-only spec now exercises date-only export under selector failure, the Blob
+  spec flushes a real JSON Blob with a 422 status, the wildcard suite adds the mixed
+  exact-plus-wildcard rows, and the corrupt-target restore test now expects refusal.
+  Backend correction evidence is recorded above (**303 passed, 5 skipped**).
+- Keep runtime-reproduced findings distinct from source-reviewed risks.
+  Record the corrective check and its result before closing each item.
+- After corrections, complete every real-host row in §11: actual production
+  startup/migrations/persistence, scheduled backups and permissions, isolated
+  recovery and revoked-session proof, authorized LAN/remote-tailnet access,
+  denied Emby-only/public/backend access, trusted certificates, cookies,
+  headers/CSP and recorded HSTS status. Then obtain user release review.
+- `BACKUP_RESTORE.md` now states the approved scope: **30 calendar days of
+  completed snapshots**; offsite/weekly/monthly retention tiers are optional
+  post-MVP work, not a prerequisite. Actual scheduler, retention and restore
+  acceptance remain §11 gates.
+- Recurring transactions, bank import, categorization rules and savings goals
+  remain post-MVP. This review calls for an M6 correction pass, not another
+  feature milestone.

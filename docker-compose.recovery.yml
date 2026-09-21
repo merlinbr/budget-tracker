@@ -1,0 +1,26 @@
+# Recovery-only override. Always pair this file with --env-file .env.recovery.
+# RECOVERY_DATA_DIR is required so an omitted recovery path cannot fall back to
+# the production ./data bind mount.
+services:
+  backend:
+    volumes:
+      - type: bind
+        source: ${RECOVERY_DATA_DIR:?Set RECOVERY_DATA_DIR in .env.recovery}
+        target: /app/data
+
+  caddy:
+    volumes:
+      - recovery_caddy_data:/data
+      - recovery_caddy_config:/config
+
+# Explicit names keep recovery CA state separate even when the Compose project
+# name is changed for a disposable drill. HTTPS_BIND_ADDRESS/HTTPS_PORT remain
+# in the base service and must be supplied by .env.recovery; overriding ports
+# here would risk Compose merging a second host mapping.
+# Caution: `docker compose down -v` from ANY project that loads this override
+# deletes these fixed-name volumes, including the recovery CA state they hold.
+volumes:
+  recovery_caddy_data:
+    name: budget-recovery-caddy-data
+  recovery_caddy_config:
+    name: budget-recovery-caddy-config
