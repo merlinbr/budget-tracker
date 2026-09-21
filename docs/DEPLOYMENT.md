@@ -552,3 +552,28 @@ recorded below.
 - Recurring transactions, bank import, categorization rules and savings goals
   remain post-MVP. This review calls for an M6 correction pass, not another
   feature milestone.
+
+### Deferred non-blocking items (correction-pass reviews, 2026-09-21)
+
+Recorded so the pass leaves no silent discards. None of these affects current
+behavior or blocks release; fold each into the next change that touches the
+file.
+
+- `scripts/restore.py`: an unreachable guard (`sidecar parking directory is
+  missing`) and a redundant `_fsync_file(pres[0])` (the shared `create_snapshot`
+  already flushes before publishing) — delete during the next restore edit.
+- `frontend/src/app/features/settings/settings.page.ts`: the success-path
+  JSON-blob branch is now unreachable because `SettingsService` normalises
+  JSON bodies into errors, and the export request-token/destroy guards cannot
+  fire while `downloading()` serialises exports — defensive but inert.
+- `backend/tests/test_backup_restore.py`: `_load_backup_module` and
+  `_load_restore_module` are near-duplicate importlib helpers; merge into one
+  when convenient.
+- Test-coverage note: the settings spec's malformed/network export tests are
+  regression guards; finding 10's proof is the JSON-Blob 422 spec. The
+  selector-membership pruning branch is covered by
+  `prunes a selected account id that disappears from a refreshed selector list`.
+- Platform caveat: POSIX-only cases (symlink refusal, ownership/mode
+  preservation, dangling-path preservation) skip on the Windows development
+  host; the per-finding §13 closure lines name each one, and their runtime
+  proof belongs to the §11 rows above.
