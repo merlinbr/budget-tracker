@@ -727,6 +727,100 @@ def test_restore_corrupt_target_aborts_without_replacement(seeded, destinations,
     assert corrupt.read_bytes() == before, "corrupt target must be retained untouched"
 
 
+def test_restore_rejects_nonregular_sidecar_without_removal(
+    seeded, destinations, tmp_path
+):
+    """A sidecar directory is rejected and remains untouched."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target = tmp_path / "existing.db"
+    make_migrated_db_from_copy(seeded, target, extra_transactions=0)
+    before = target.read_bytes()
+    wal_dir = Path(str(target) + "-wal")
+    wal_dir.mkdir()
+    marker = wal_dir / "unrelated-tree-entry"
+    marker.write_bytes(b"must survive")
+
+    result = run_script(RESTORE_SCRIPT, "--backup", snap,
+                        "--database", target, "--confirm")
+
+    assert result.returncode != 0
+    assert "regular file" in result.stderr.lower()
+    assert target.read_bytes() == before
+    assert wal_dir.is_dir()
+    assert marker.read_bytes() == b"must survive"
+    assert not list(tmp_path.glob(".budget-sidecars-*"))
+
+
+def test_restore_checkpoints_wal_and_preserves_old_target(
+    seeded, destinations, tmp_path
+):
+    """Checkpointed WAL data is preserved while sessions are reset."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target = tmp_path / "wal-target.db"
+    make_migrated_db_from_copy(seeded, target, extra_transactions=0)
+
+    writer_code = """
+import os
+import sqlite3
+import sys
+
+conn = sqlite3.connect(sys.argv[1])
+ids = conn.execute(
+    "SELECT household_id, account_id, category_id, created_by_user_id "
+    "FROM transactions LIMIT 1"
+).fetchone()
+conn.execute("PRAGMA journal_mode=WAL")
+conn.execute("PRAGMA wal_autocheckpoint=0")
+conn.execute(
+    "INSERT INTO transactions (household_id, account_id, category_id, "
+    "amount, description, transaction_date, created_by_user_id, "
+    "created_at, updated_at) VALUES (?, ?, ?, -17, 'wal-extra', "
+    "'2026-09-07', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    ids,
+)
+conn.commit()
+os._exit(0)
+"""
+    writer = subprocess.run(
+        [sys.executable, "-c", writer_code, str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert writer.returncode == 0, writer.stderr
+    wal = Path(str(target) + "-wal")
+    assert wal.is_file(), "WAL writer must leave an offline checkpoint to do"
+
+
+    result = run_script(RESTORE_SCRIPT, "--backup", snap,
+                        "--database", target, "--confirm")
+
+    assert result.returncode == 0, result.stderr
+    conn = sqlite3.connect(target)
+    try:
+        assert conn.execute("SELECT count(*) FROM transactions"
+                            ).fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM sessions"
+                            ).fetchone()[0] == 0
+    finally:
+        conn.close()
+    (preserved,) = sorted(tmp_path.glob("budget-pre-restore-*.sqlite"))
+    conn = sqlite3.connect(f"file:{preserved}?mode=ro", uri=True)
+    try:
+        assert conn.execute("SELECT count(*) FROM transactions"
+                            ).fetchone()[0] == 2
+        assert conn.execute("SELECT count(*) FROM sessions"
+                            ).fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
 def test_restore_staged_fsync_failure_keeps_target_sidecars(
     seeded, destinations, tmp_path, monkeypatch
 ):
@@ -782,20 +876,28 @@ def test_restore_publication_failure_restores_parked_sidecars(
     shm = Path(str(target) + "-shm")
 
     restore = _load_restore_module()
-    real_snapshot = restore.create_snapshot
+    real_collect = restore._collect_sidecars
     real_replace = restore.os.replace
+    collect_calls = 0
 
-    def snapshot_with_markers(database: Path, destination: Path) -> None:
-        real_snapshot(database, destination)
-        wal.write_bytes(b"wal-marker")
-        shm.write_bytes(b"shm-marker")
+    def collect_after_checkpoint(database: Path) -> list[Path]:
+        nonlocal collect_calls
+        collect_calls += 1
+        sidecars = real_collect(database)
+        if collect_calls == 2:
+            wal.write_bytes(b"wal-marker")
+            shm.write_bytes(b"shm-marker")
+            return [wal, shm]
+        return sidecars
 
     def fail_publication(source: Path, destination: Path) -> None:
         if Path(source).name == "staged.sqlite":
             raise OSError("forced target publication failure")
         real_replace(source, destination)
 
-    monkeypatch.setattr(restore, "create_snapshot", snapshot_with_markers)
+    monkeypatch.setattr(
+        restore, "_collect_sidecars", collect_after_checkpoint
+    )
     monkeypatch.setattr(restore.os, "replace", fail_publication)
     assert restore.main([
         "--backup", str(snap), "--database", str(target), "--confirm"
@@ -803,7 +905,179 @@ def test_restore_publication_failure_restores_parked_sidecars(
     assert target.read_bytes() == before
     assert wal.read_bytes() == b"wal-marker"
     assert shm.read_bytes() == b"shm-marker"
-    assert not list(tmp_path.glob(".budget-restore-sidecar-*"))
+
+
+def test_restore_sidecar_rollback_keeps_recreated_paths(
+    seeded, destinations, tmp_path, monkeypatch
+):
+    """Rollback never overwrites sidecars recreated during a failed swap."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target = tmp_path / "existing.db"
+    make_migrated_db_from_copy(seeded, target, extra_transactions=0)
+    before = target.read_bytes()
+    wal = Path(str(target) + "-wal")
+    shm = Path(str(target) + "-shm")
+
+    restore = _load_restore_module()
+    real_collect = restore._collect_sidecars
+    real_replace = restore.os.replace
+    collect_calls = 0
+
+    def collect_after_checkpoint(database: Path) -> list[Path]:
+        nonlocal collect_calls
+        collect_calls += 1
+        sidecars = real_collect(database)
+        if collect_calls == 2:
+            wal.write_bytes(b"wal-marker")
+            shm.write_bytes(b"shm-marker")
+            return [wal, shm]
+        return sidecars
+
+    def fail_after_recreating_sidecars(
+        source: Path, destination: Path
+    ) -> None:
+        if Path(source).name == "staged.sqlite":
+            wal.write_bytes(b"raced-wal")
+            shm.write_bytes(b"raced-shm")
+            raise OSError("forced target publication failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(
+        restore, "_collect_sidecars", collect_after_checkpoint
+    )
+    monkeypatch.setattr(
+        restore.os, "replace", fail_after_recreating_sidecars
+    )
+    assert restore.main([
+        "--backup", str(snap), "--database", str(target), "--confirm"
+    ]) == 1
+    assert target.read_bytes() == before
+    assert wal.read_bytes() == b"raced-wal"
+    assert shm.read_bytes() == b"raced-shm"
+    recovery = next(tmp_path.glob(".budget-sidecars-*"))
+    assert {p.name for p in recovery.iterdir()} == {
+        wal.name, shm.name
+    }
+
+
+def test_restore_rollback_fsync_failure_retains_recovery_sidecars(
+    seeded, destinations, tmp_path, monkeypatch
+):
+    """Rollback fsync failure keeps target and recovery data lossless."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target = tmp_path / "existing.db"
+    make_migrated_db_from_copy(seeded, target, extra_transactions=0)
+    before = target.read_bytes()
+    wal = Path(str(target) + "-wal")
+    shm = Path(str(target) + "-shm")
+
+    restore = _load_restore_module()
+    real_collect = restore._collect_sidecars
+    real_replace = restore.os.replace
+    real_fsync_dir = restore._fsync_dir
+    collect_calls = 0
+    publication_failed = False
+
+    def collect_after_checkpoint(database: Path) -> list[Path]:
+        nonlocal collect_calls
+        collect_calls += 1
+        sidecars = real_collect(database)
+        if collect_calls == 2:
+            wal.write_bytes(b"wal-marker")
+            shm.write_bytes(b"shm-marker")
+            return [wal, shm]
+        return sidecars
+
+    def fail_publication(source: Path, destination: Path) -> None:
+        nonlocal publication_failed
+        if Path(source).name == "staged.sqlite":
+            publication_failed = True
+            raise OSError("forced target publication failure")
+        real_replace(source, destination)
+
+    def fail_rollback_fsync(path: Path) -> None:
+        if publication_failed and Path(path) == target.parent:
+            raise OSError("forced rollback directory fsync failure")
+        real_fsync_dir(path)
+
+    monkeypatch.setattr(
+        restore, "_collect_sidecars", collect_after_checkpoint
+    )
+    monkeypatch.setattr(restore.os, "replace", fail_publication)
+    monkeypatch.setattr(restore, "_fsync_dir", fail_rollback_fsync)
+    assert restore.main([
+        "--backup", str(snap), "--database", str(target), "--confirm"
+    ]) == 1
+    assert target.read_bytes() == before
+    assert wal.read_bytes() == b"wal-marker"
+    assert shm.read_bytes() == b"shm-marker"
+    preserved = next(tmp_path.glob("budget-pre-restore-*.sqlite"))
+    assert read_snapshot_counts(preserved)["transactions"] == 1
+    recovery = next(tmp_path.glob(".budget-sidecars-*"))
+    assert {p.name for p in recovery.iterdir()} == {
+        wal.name, shm.name
+    }
+
+
+def test_restore_post_publication_cleanup_failure_names_retained_dir(
+    seeded, destinations, tmp_path, monkeypatch, capsys
+):
+    """Cleanup failure after publication retains and names the sidecar dir."""
+    result = run_script(BACKUP_SCRIPT, "--database", seeded,
+                        "--destination", destinations, "--keep-days", "30")
+    assert result.returncode == 0, result.stderr
+    (snap,) = budget_snapshots(destinations)
+    target = tmp_path / "existing.db"
+    make_migrated_db_from_copy(seeded, target, extra_transactions=0)
+    wal = Path(str(target) + "-wal")
+    shm = Path(str(target) + "-shm")
+
+    restore = _load_restore_module()
+    real_collect = restore._collect_sidecars
+    real_rmtree = restore.shutil.rmtree
+    collect_calls = 0
+
+    def collect_after_checkpoint(database: Path) -> list[Path]:
+        nonlocal collect_calls
+        collect_calls += 1
+        sidecars = real_collect(database)
+        if collect_calls == 2:
+            wal.write_bytes(b"wal-marker")
+            shm.write_bytes(b"shm-marker")
+            return [wal, shm]
+        return sidecars
+
+    def fail_sidecar_cleanup(path: Path, *args: object, **kwargs: object) -> None:
+        if Path(path).name.startswith(".budget-sidecars-"):
+            raise OSError("forced sidecar cleanup failure")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        restore, "_collect_sidecars", collect_after_checkpoint
+    )
+    monkeypatch.setattr(restore.shutil, "rmtree", fail_sidecar_cleanup)
+    assert restore.main([
+        "--backup", str(snap), "--database", str(target), "--confirm"
+    ]) == 1
+
+    stderr = capsys.readouterr().err
+    # Publication completed; only obsolete sidecar cleanup failed.
+    conn = sqlite3.connect(target)
+    try:
+        assert conn.execute("SELECT count(*) FROM sessions").fetchone()[0] == 0
+    finally:
+        conn.close()
+    recovery = next(tmp_path.glob(".budget-sidecars-*"))
+    assert str(recovery) in stderr, stderr
+    assert {p.name for p in recovery.iterdir()} == {
+        wal.name, shm.name
+    }
 
 
 def test_restore_preservation_names_unique_same_second(

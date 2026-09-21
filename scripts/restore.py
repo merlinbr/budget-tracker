@@ -13,8 +13,8 @@ Safety properties (contract):
 - snapshots the existing target first, preserving ownership/mode on replacement
 - corrupt existing targets abort without replacement
 - pre-restore snapshots never overwrite existing directory entries
-- existing target sidecars are parked transactionally around publication
-- fsyncs the staged file and target directory after publication
+- existing target WAL is checkpointed and closed before sidecar manipulation
+- fsyncs staged data and relevant directory entries before/after publication
 """
 
 from __future__ import annotations
@@ -79,27 +79,8 @@ def _unique_preserve_name(directory: Path, stamp: str) -> Path:
         serial += 1
 
 
-def _same_inode(path: Path, expected: os.stat_result) -> bool:
-    try:
-        actual = os.stat(path, follow_symlinks=False)
-    except FileNotFoundError:
-        return False
-    return (actual.st_dev, actual.st_ino) == (
-        expected.st_dev, expected.st_ino
-    )
-
-
-def _unlink_if_same_inode(path: Path, expected: os.stat_result) -> None:
-    if not os.path.lexists(path):
-        return
-    if not _same_inode(path, expected):
-        raise RuntimeError(f"path changed before cleanup: {path}")
-    path.unlink()
-
-
 def _publish_preserve(source: Path, directory: Path, stamp: str) -> Path:
     """Publish a verified preserve snapshot without replacing any path."""
-    source_stat = os.stat(source, follow_symlinks=False)
     while True:
         target = _unique_preserve_name(directory, stamp)
         try:
@@ -110,65 +91,30 @@ def _publish_preserve(source: Path, directory: Path, stamp: str) -> Path:
             if os.path.lexists(target):
                 continue
             raise
-        try:
-            _unlink_if_same_inode(source, source_stat)
-        except Exception:
-            _unlink_if_same_inode(target, source_stat)
-            raise
         return target
 
 
-def _sidecar_private_name(directory: Path, serial: int) -> Path:
-    return directory / (
-        f".budget-restore-sidecar-{os.getpid()}-{serial:02x}"
-    )
-
-
-def _park_sidecar(sidecar: Path, directory: Path) -> tuple[Path, os.stat_result]:
-    """Park one sidecar with a no-overwrite hard link, then unlink its source."""
-    if sidecar.is_symlink():
-        raise RuntimeError(f"sidecar must not be a symlink: {sidecar}")
-    source_stat = os.stat(sidecar, follow_symlinks=False)
-    serial = 0
-    while True:
-        parked = _sidecar_private_name(directory, serial)
-        serial += 1
-        if os.path.lexists(parked):
-            continue
-        try:
-            os.link(sidecar, parked)
-        except FileExistsError:
-            continue
-        except PermissionError:
-            if os.path.lexists(parked):
-                continue
-            raise
-        parked_stat = os.stat(parked, follow_symlinks=False)
-        try:
-            _unlink_if_same_inode(sidecar, source_stat)
-        except Exception:
-            _unlink_if_same_inode(parked, parked_stat)
-            raise
-        return parked, parked_stat
-
-
 def _restore_parked_sidecars(
-    parked: list[tuple[Path, Path, os.stat_result]]
+    parked: list[tuple[Path, Path]]
 ) -> None:
+    """Restore parked sidecars with no-overwrite hard links."""
     errors: list[Exception] = []
-    for original, saved, saved_stat in reversed(parked):
+    for original, saved in reversed(parked):
         try:
-            if not _same_inode(saved, saved_stat):
-                raise RuntimeError(f"parked sidecar changed before rollback: {saved}")
+            if not os.path.lexists(saved):
+                raise RuntimeError(f"parked sidecar is missing: {saved}")
             try:
                 os.link(saved, original)
-            except FileExistsError:
-                if not _same_inode(original, saved_stat):
-                    raise
-            except PermissionError:
-                if not _same_inode(original, saved_stat):
-                    raise
-            _unlink_if_same_inode(saved, saved_stat)
+            except FileExistsError as exc:
+                raise RuntimeError(
+                    f"sidecar destination occupied during rollback: {original}"
+                ) from exc
+            except PermissionError as exc:
+                if os.path.lexists(original):
+                    raise RuntimeError(
+                        f"sidecar destination occupied during rollback: {original}"
+                    ) from exc
+                raise
         except Exception as exc:
             errors.append(exc)
     if errors:
@@ -177,19 +123,20 @@ def _restore_parked_sidecars(
         ) from errors[0]
 
 
-def _discard_parked_sidecars(
-    parked: list[tuple[Path, Path, os.stat_result]]
-) -> None:
-    errors: list[Exception] = []
-    for _, saved, saved_stat in parked:
-        try:
-            _unlink_if_same_inode(saved, saved_stat)
-        except Exception as exc:
-            errors.append(exc)
-    if errors:
-        raise RuntimeError(
-            f"could not remove {len(errors)} parked sidecar(s) after publication"
-        ) from errors[0]
+def _collect_sidecars(database: Path) -> list[Path]:
+    sidecars: list[Path] = []
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(str(database) + suffix)
+        if not os.path.lexists(sidecar):
+            continue
+        if sidecar.is_symlink():
+            raise RuntimeError(f"sidecar must not be a symlink: {sidecar}")
+        if not sidecar.is_file():
+            raise RuntimeError(
+                f"sidecar must be a regular file: {sidecar}"
+            )
+        sidecars.append(sidecar)
+    return sidecars
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -215,10 +162,13 @@ def main(argv: list[str] | None = None) -> int:
 
     staged: Path | None = None
     staging_dir: Path | None = None
+    sidecar_dir: Path | None = None
+    retain_sidecar_dir = False
     try:
         backup, database = _reject_unsafe_paths(args.backup, args.database)
         if not backup.is_file():
             raise FileNotFoundError(f"backup not found: {backup}")
+        _collect_sidecars(database)
 
         revision = _query_head_revision(backup)
         if revision != HEAD_REVISION:
@@ -238,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         src = sqlite3.connect(f"file:{backup}?mode=ro", uri=True)
         try:
             dst = sqlite3.connect(f"file:{staged}?mode=rwc", uri=True)
+
             try:
                 src.backup(dst)
                 dst.commit()
@@ -278,6 +229,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             finally:
                 shutil.rmtree(stamp_dir, ignore_errors=True)
+        if published is not None:
+            _fsync_dir(database.parent)
 
         # Prepare the staged file fully before touching target sidecars.
         if os.name != "nt":
@@ -289,31 +242,85 @@ def main(argv: list[str] | None = None) -> int:
 
         _fsync_file(staged)
 
-        # Park sidecars with no-overwrite hard links so any pre-publication
-        # failure can restore their exact names and contents.
-        parked: list[tuple[Path, Path, os.stat_result]] = []
+        # The target is offline: checkpoint and close it before moving
+        # sidecars. A busy or incomplete checkpoint leaves the old target
+        # untouched and aborts before any sidecar rename.
+        if database.exists():
+            target_conn = sqlite3.connect(database)
+            try:
+                checkpoint = target_conn.execute(
+                    "PRAGMA wal_checkpoint(TRUNCATE)"
+                ).fetchone()
+                if checkpoint is None or len(checkpoint) != 3:
+                    raise RuntimeError(
+                        "target WAL checkpoint returned no completion status"
+                    )
+                busy, log_frames, checkpointed = (
+                    int(value) for value in checkpoint
+                )
+                if busy != 0 or log_frames != checkpointed:
+                    raise RuntimeError(
+                        "target WAL checkpoint incomplete: "
+                        f"busy={busy}, log={log_frames}, "
+                        f"checkpointed={checkpointed}"
+                    )
+            finally:
+                target_conn.close()
+
+        sidecars = _collect_sidecars(database)
+
+        # Park sidecars in a private same-directory filesystem staging
+        # directory. Rename is atomic into a fresh 0700 directory; rollback
+        # restores names with no-overwrite hard links.
+        parked: list[tuple[Path, Path]] = []
         published_target = False
         try:
-            for suffix in ("-wal", "-shm"):
-                sidecar = Path(str(database) + suffix)
-                if os.path.lexists(sidecar):
-                    saved, saved_stat = _park_sidecar(
-                        sidecar, database.parent
-                    )
-                    parked.append((sidecar, saved, saved_stat))
+            if sidecars:
+                sidecar_dir = Path(tempfile.mkdtemp(
+                    prefix=".budget-sidecars-", dir=database.parent
+                ))
+                for sidecar in sidecars:
+                    saved = sidecar_dir / sidecar.name
+                    if os.path.lexists(saved):
+                        raise RuntimeError(
+                            f"sidecar parking path already exists: {saved}"
+                        )
+                    os.rename(sidecar, saved)
+                    parked.append((sidecar, saved))
+            if parked:
+                if sidecar_dir is None:
+                    raise RuntimeError("sidecar parking directory is missing")
+                _fsync_dir(sidecar_dir)
+                _fsync_dir(database.parent)
             os.replace(staged, database)
             staged = None  # ownership moved into the target
             published_target = True
         except Exception:
             if not published_target:
-                _restore_parked_sidecars(parked)
+                try:
+                    _restore_parked_sidecars(parked)
+                    _fsync_dir(database.parent)
+                except Exception as rollback_exc:
+                    retain_sidecar_dir = True
+                    raise RuntimeError(
+                        "restore aborted; sidecar rollback incomplete; "
+                        f"recovery directory retained at {sidecar_dir}"
+                    ) from rollback_exc
             raise
 
         post_publication_errors: list[Exception] = []
-        try:
-            _discard_parked_sidecars(parked)
-        except Exception as exc:
-            post_publication_errors.append(exc)
+        retained_cleanup_note = ""
+        if sidecar_dir is not None:
+            try:
+                shutil.rmtree(sidecar_dir)
+            except Exception as exc:
+                post_publication_errors.append(exc)
+                retain_sidecar_dir = True
+                retained_cleanup_note = (
+                    f"; obsolete sidecars retained at {sidecar_dir}"
+                )
+            else:
+                sidecar_dir = None
         try:
             _fsync_dir(database.parent)
         except Exception as exc:
@@ -321,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         if post_publication_errors:
             raise RuntimeError(
                 "restore published the target but post-publication cleanup "
-                "or durability failed"
+                "or durability failed" + retained_cleanup_note
             ) from post_publication_errors[0]
 
         notes = []
@@ -339,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
             staged.unlink(missing_ok=True)
         if staging_dir is not None:
             shutil.rmtree(staging_dir, ignore_errors=True)
+        if sidecar_dir is not None and not retain_sidecar_dir:
+            shutil.rmtree(sidecar_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
