@@ -24,6 +24,16 @@ smoke passed at 390px and 1280px. Recovery Compose rendering proved fail-closed
 data isolation and safe port replacement. POSIX/Windows host behavior, the real
 recovery drill and §11 release evidence remain unverified.
 
+## Current application review backlog
+
+The [2026-09-29 application review](docs/APP_REVIEW.md) records six new open
+code findings (three reproduced, three source-derived risks), separate
+refactoring notes, and a prioritized next-task list. Earlier `DEPLOYMENT.md`
+§13 closures do not close these findings. Authentication/navigation lifecycle
+and draft preservation are the next coding priorities; actual-host deployment,
+network isolation and backup/recovery remain release gates. No fixes or
+production changes were made by the review.
+
 ## Completed
 
 - Alembic revision `0002_identity` adds users, households, household members, and opaque sessions.
