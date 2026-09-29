@@ -125,7 +125,7 @@ These are not six more feature gaps. Keep changes local and behavior-preserving;
 
 ## Operational release findings
 
-All are **P0 gates**, not application features to implement blindly. Follow [UNRAID_PREFLIGHT.md](UNRAID_PREFLIGHT.md), [UNRAID_RUNBOOK.md](UNRAID_RUNBOOK.md), and [DEPLOYMENT.md](DEPLOYMENT.md) §11. Local disposable evidence does not prove the actual Unraid host or client devices.
+All are **P0 gates**, not application features to implement blindly. Follow [DEPLOYMENT.md](DEPLOYMENT.md) §11 and [BACKUP_RESTORE.md](BACKUP_RESTORE.md). Local disposable evidence does not prove the actual Unraid host or client devices. The host-specific Unraid guides remain unpublished and are outside this commit's scope.
 
 | ID | Open gate | Required proof |
 |---|---|---|

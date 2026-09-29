@@ -1,175 +1,131 @@
 # Household Budget Tracker
 
-Private, self-hosted household budget tracker. Milestones 1–6 provide local authentication, household membership, account/category management, exact-cent balances, archive workflows, transaction entry/history, a household-scoped selected-month dashboard, monthly category budgets, profile/household settings, safe CSV export, and host-operated backup/recovery. Application and disposable-recovery verification passed; actual production host, device, firewall, DNS/TLS, scheduler, and network-isolation gates remain open.
+A private, self-hosted web app for tracking a household's income, expenses and monthly budgets. Each member has their own login and shares the same household financial data.
 
-## Requirements
+Built with **Angular**, **FastAPI** and **SQLite**, with **Caddy** providing HTTPS for container deployments. Designed for home LAN and authorized Tailscale access—not public internet exposure.
 
-- Node.js 24.15 or newer in the Node 24 line
-- Python 3.13 or 3.14
-- Docker Engine with Compose v2
+## Features
 
-The frontend is pinned to Angular 22.1.x. The backend uses FastAPI, SQLAlchemy 2.x, Alembic, SQLite, and Argon2id.
+- **Accounts and categories:** organize your money, track balances and archive old accounts or categories without losing transaction history.
+- **Transactions:** record income and expenses; edit, delete, search and filter by month, account, category or type.
+- **Monthly dashboard:** see income, expenses, net activity, current balances and recent transactions.
+- **Category budgets:** set monthly limits, track spending and remaining amounts, and copy limits from the previous month.
+- **Household access:** individual logins, shared data, profile settings and password changes.
+- **Export and backups:** download filtered CSV exports; use administrator-operated database backup and recovery scripts.
 
-## Local development
+Amounts are stored as integer cents; the current UI uses EUR. Bank synchronization, bank imports and recurring transactions are not included.
 
-Create a backend environment and install the pinned dependencies:
+**Project status:** the MVP features are implemented. Open code findings and real-host deployment checks remain before release acceptance. See [project status](state.md) and the [application review and next tasks](docs/APP_REVIEW.md).
 
-```text
+## Run locally
+
+### Requirements
+
+- Python **3.13 or 3.14**
+- Node.js **24.15 or newer within the Node 24 line**, with npm
+
+Docker is not needed for local development. Start from the repository root.
+
+### 1. Start the backend
+
+Create a virtual environment:
+
+```sh
 cd backend
 python -m venv .venv
-# Windows PowerShell: .\.venv\Scripts\Activate.ps1
-# POSIX shell: source .venv/bin/activate
+```
+
+Activate it with the command for your shell:
+
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+```
+
+```sh
+# Linux/macOS
+source .venv/bin/activate
+```
+
+Install dependencies, create the database and set up your first household:
+
+```sh
 python -m pip install -r requirements.lock
 alembic upgrade head
 python -m app.cli init-household
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The bootstrap command reads the household name, username, display name, and password confirmation interactively. Passwords are never command-line arguments. `init-household` optionally creates the exact 17 default categories for a new household. Add later members with `python -m app.cli create-user`; use `reset-password` and `cleanup-sessions` for administration.
+`init-household` prompts for the household name, first user's credentials and optional default categories. Run it only for a new installation; on later starts, skip that command. There is no public registration.
 
-In a second terminal:
+### 2. Start the frontend
 
-```text
+In a second terminal, starting from the repository root:
+
+```sh
 cd frontend
 npm ci
 npm start
 ```
 
-Open `http://127.0.0.1:4200/`. The Angular development proxy forwards `/api/*` to FastAPI at `http://127.0.0.1:8000`. Both `http://127.0.0.1:4200` and `http://localhost:4200` are valid development origins.
+Open **[http://127.0.0.1:4200](http://127.0.0.1:4200)** and sign in with the account you created. The development proxy forwards API requests to the backend on port 8000. Local data is stored in `data/budget.db`.
 
-## Checks
+## Run with Docker
 
-Backend:
+Requires Docker Engine and Compose v2. From the repository root, copy `.env.example` to `.env` if you do not already have one:
 
-```text
-cd backend
-python -m pytest
+```powershell
+# Windows PowerShell
+Copy-Item .env.example .env
 ```
 
-Frontend:
+```sh
+# Linux/macOS
+cp .env.example .env
+```
 
-```text
-cd frontend
+The example config is for **local development only**. Before starting on Linux, prepare the data directory's ownership for container UID/GID `10001` as described in the [deployment guide](docs/DEPLOYMENT.md#3-data-and-ownership).
+
+```sh
+docker compose config
+docker compose up --build -d
+docker compose exec backend python -m app.cli init-household
+```
+
+Skip `init-household` if the database already contains your household. Open **[https://localhost:8443](https://localhost:8443)** using the example configuration. Trust Caddy's local root certificate on your client before browser use; see [certificate setup](docs/DEPLOYMENT.md#6-trusting-the-caddy-root-certificate).
+
+Only Caddy publishes a host port; SQLite data persists in `data/`. For a real LAN/Tailscale installation, follow the [deployment guide](docs/DEPLOYMENT.md). Do not expose the app publicly or use real financial data before the network and recovery checks pass.
+
+## Administration and checks
+
+With the backend virtual environment active, run these from `backend/`:
+
+```sh
+python -m app.cli create-user       # Add a household member
+python -m app.cli reset-password    # Reset a password and revoke that user's sessions
+python -m app.cli cleanup-sessions  # Remove expired sessions
+python -m pytest                    # Backend tests
+```
+
+From `frontend/`:
+
+```sh
 npm test -- --watch=false
 npm run build
+npx playwright install chromium     # First-time browser setup
 npx playwright test
 ```
 
-The Playwright browser binary is a separate local install when needed:
+Browser checks start their own backend/frontend against disposable data. Stop the local development servers first, and activate the backend virtual environment in the browser-check terminal too, or set `PYTHON` to its interpreter path.
 
-```text
-npx playwright install chromium
-```
+## Further documentation
 
-Verified locally against disposable databases and the real-backend browser harness:
+- [Project status](state.md) — current progress and recorded verification.
+- [Application review](docs/APP_REVIEW.md) — code findings, refactoring notes and prioritized tasks.
+- [Deployment](docs/DEPLOYMENT.md) — configuration, permissions, HTTPS and network acceptance.
+- [Backup and restore](docs/BACKUP_RESTORE.md) — scheduling, retention and isolated recovery. CSV exports are not database backups.
+- [MVP specification](BUDGET_TRACKER_MVP_SPEC.md) — product scope and detailed behavior contracts.
 
-- Backend M2 baseline: `cd backend && python -m pytest` — 55 passed. Final integrated run: `cd backend && python -m pytest` — **85 passed, 79 warnings**.
-- Angular M2 baseline: `8` test files / `19` tests passed; development build passed. Final integrated runs: `cd frontend && npm test -- --watch=false` — **10 test files / 30 tests passed**; `npm run build` — **passed**.
-- Playwright M2 baseline: `6` browser tests passed at `1280×900` and `390×844`, including account/category lifecycle, keyboard validation, archive/read-only behavior, logout, and protected deep-link denial.
-- Playwright M3 focused: `cd frontend && npx playwright test e2e/transactions.spec.ts` — **2 passed** at `1280×900` and `390×844` against the real backend with generated credentials, `Pacific/Kiritimati`, and frontend clock `2026-09-06T12:30:00Z`; covered exact transaction amounts/dates, keyboard expense validation/entry, filters, archived historical correction, plain-text HTML description, reload persistence, balance/API cents, expired-session save redirect, actual logout/back/deep-link denial, and real offline/403 failed-save preservation.
-- Alembic M2 baseline: fresh `0002_identity → 0003_accounts_categories` preserved identity/session rows and exact `-8472` cents; a separate `0003 → 0002 → 0003` cycle preserved identity/session rows and removed/recreated financial tables; an empty database reached head.
-- Alembic M3 focused: on an explicitly temporary SQLite URL, the seeded M2 account remained `initial_balance=-8472, balance=-8472` before the cycle, `initialBalance=-8472, balance=-8472` after `0003 → 0004` with `transactions_table_present=True`, `initial_balance=-8472, balance=-9472` after the API-created/read `-1000` transaction, and `initial_balance=-8472, balance=-8472` after `0004 → 0003` with `transactions_table_present=False`; the final `0003 → 0004` re-upgrade preserved M2 household/account/category rows and printed `transactions_table_present=True` with `initial_balance=-8472, balance=-8472`.
-- Bootstrap CLI: disposable real PTY runs accepted all `17` exact default category pairs and declined with `0` category rows.
-- Focused M2 security review: no confirmed Critical/High/Medium/Low vulnerabilities.
-- Focused M3 security review: no confirmed vulnerability in transaction household predicates, archive/reference checks, sign/cents/date validation, parameterized literal search, explicit responses, text rendering, preserved CSRF/401 flow, or private-data logging. `backend/app/transactions.py` has no logger/print calls; the generic logger at `backend/app/errors.py:98-100` records only HTTP method and URL path, not request bodies, amounts, or descriptions. This was a focused source review, not external penetration testing.
-- Real browser failure preservation: with the context offline, a valid save showed the connection alert while the form and amount remained; replacing only `XSRF-TOKEN` produced the actual 403 alert with the form and amount preserved; the real `/api/auth/csrf` endpoint refreshed CSRF before canceling, and unique failed-save descriptions were absent from filtered history.
-- Browser loading/failure visual rendering remains unverified. No API mocks/intercepts or unsafe request replay was used. Final integrated backend/frontend commands, build, and full Playwright run all passed; deployment, network, backup, and restore remain later gates.
-- M4 focused backend: `cd backend && python -m pytest tests/test_dashboard.py tests/test_accounts.py tests/test_money.py tests/test_authorization.py -q` — **45 passed**; the new `tests/test_dashboard.py` covers the exact September/October/November oracle, empty/initial-only/income-only households, join multiplication, archive retention, latest-ten ordering, equal-spending category-ID tie-break, leap/calendar bounds, validation, two-household isolation and member visibility, safe-integer and monthly overflow, scoped SQLite overflow, absence of financial logging, and a concurrent-write regression proving all four dashboard queries share one read snapshot.
-- M4 focused frontend: `cd frontend && npm test -- --watch=false --include=src/app/features/dashboard/dashboard.page.spec.ts` — **6 passed**; `npm run build` — **passed**.
-- M4 focused browser: `cd frontend && npx playwright test e2e/dashboard.spec.ts e2e/auth.spec.ts` — **4 passed** at `1280×900` and `390×844`, using isolated `e2e-dashboard-1280`/`e2e-dashboard-390` households, generated credentials, `Pacific/Kiritimati`, and frontend clock `2026-08-31T12:30:00Z`; covered the local-September default, exact rendered oracle per month, December/January rollover, keyboard month navigation, archive balance-versus-history, a nondefault-selection reload resetting to the local month, delayed real-GET loading, offline failure with Retry asserting a ready summary, expired-session redirect, and literal HTML-looking description.
-- M4 final integrated runs: `cd backend && python -m pytest` — **117 passed**; `cd frontend && npm test -- --watch=false` — **11 test files / 36 tests passed**; `npm run build` — **passed**; `npx playwright test` — **10 passed** at `1280×900` and `390×844`.
-- M4 dashboard ready, loading, empty and error screenshots were captured at both widths and the automated no-document-overflow and card-content assertions passed; pixel-level visual inspection was not performed in this environment, so the visual layout gate is asserted, not human-reviewed.
-- M4 financial consistency: `GET /api/dashboard` opens one explicit SQLite read transaction (`BEGIN`) so its four queries share a single WAL snapshot; a concurrent-write regression fails without it and passes with it.
-- Focused M4 security review: no confirmed vulnerability in the dashboard household predicates, joined name lookups, integer-cent precision, calendar bounds, request cancellation, 401 cleanup, or financial logging. `backend/app/dashboard.py` has no logger/print calls.
-- M5 focused backend: `cd backend && python -m pytest tests/test_budgets.py tests/test_dashboard.py tests/test_authorization.py -p no:warnings` — **131 passed**; the new `tests/test_budgets.py` covers zero/empty/exact-limit definitions, calendar/sign/scoping of spent (income and foreign-household transaction injection stays excluded), calendar bounds (year 1–9999, leap February), strict limit/period/path/body validation, anonymous 401 and missing-CSRF 403 denials, owner/member/foreign-household isolation with identical NOT_FOUND envelopes, archived category correction-but-not-creation rules, unique-key concurrent upserts, migrated raw-row constraint/unique enforcement, atomic copy-previous with overwrite confirmation and latest-source rereads, January/zero/archived copy edges, and safe-integer plus SQLite-overflow rollback (including a concurrent unrelated PUT after a failed write).
-- M5 focused frontend: `cd frontend && npm test -- --watch=false --include=src/app/features/budgets/budgets.page.spec.ts --include=src/app/features/dashboard/dashboard.page.spec.ts` — **22 passed (2 files)**.
-- M5 focused browser: `cd frontend && npx playwright test e2e/budgets.spec.ts` — **2 passed** at `1280×900` and `390×844` with isolated `e2e-budgets-1280`/`e2e-budgets-390` households and generated credentials; both scenarios run against the real backend and cover set→update→remove lifecycle plus copy-previous confirmation flow.
-- M5 final integrated runs: `cd backend && python -m pytest -p no:warnings` — **211 passed**; `cd frontend && npm test -- --watch=false` — **12 test files / 52 tests passed**; `npm run build` — **passed**; `npx playwright test` — **12 passed** at `1280×900` and `390×844`.
-- Alembic M5 focused: on explicitly temporary SQLite URLs, `0004 → 0005` preserved all seeded M4 rows/sums (household/user/account/category/transaction counts, initial balance `100000`, transaction sum `-8472`); through the M5 app a seeded identity authenticated, `GET /api/dashboard` returned the M4 baseline (expenses `8472`, balance `91528`, empty `budgets`), and `PUT /api/budgets/1` limit `60000` returned `spent 8472 / remaining 51528`; downgrade `0004` removed `budgets` and preserved every M4 row; re-upgrade re-reached head with empty `budgets` and unchanged M4 totals via the app; a separate empty database upgraded to head `0005_budgets`.
-- Focused M5 security review: no confirmed vulnerability in budget household predicates (`require_household` on every route, `household_id` in every predicate and joined category lookup via `get_category(db, id, household_id)`), CSRF coverage (`csrf_guard` is a global dependency covering the three write routes), validate-before-commit ordering, integer-cent precision/overflow rollbacks, or financial logging. `backend/app/budgets.py` has no logger/print calls; errors carry only status codes and the shared messages. This was a focused source review, not external penetration testing.
-- M6 final integrated checks: `cd backend && python -m pytest` — **286 passed, 244 warnings**; `cd frontend && npm test -- --watch=false` — **13 test files / 71 tests passed**; `npm run build` — **passed**; `npx playwright test` — **16 passed** at `1280×900` and `390×844` with the shared SQLite browser suite serialized to one worker.
-- M6 disposable production-shaped Compose: isolated `APP_ENV=production` primary and recovery projects used `lvh.me`, Caddy internal TLS, backend health `200`, backend-only internal port, private/no-store API responses, security headers, and production `/openapi.json`, `/docs`, `/redoc` plus unknown API paths returning `404`. The primary backup captured two accounts and revision `0005_budgets`; restore produced `sessions=0`, one transaction, and the configured budget; the old cookie received `401` on recovery, fresh login read the restored dashboard, and a new transaction returned `201`.
-- M6 visual inspection: real Chrome checks covered desktop and phone login, dashboard, accounts, categories, transactions, budgets (including over-budget text), and settings (including populated data and validation/error surfaces). The mobile invalid-login path was corrected to keep `document.documentElement.scrollWidth` equal to the 390px viewport.
-- Focused M6 security review: no confirmed vulnerability in household predicates, profile/member exposure, password-change semantics, CSV query scoping/formula neutralization, backup/restore session removal, production host validation, API cache policy, CSP/security headers, or backend port exposure. This was source and disposable-environment review, not external penetration testing.
+## License
 
-## Administration
-
-Run these commands from `backend` against the configured database:
-
-```text
-python -m app.cli init-household
-python -m app.cli create-user
-python -m app.cli reset-password
-python -m app.cli cleanup-sessions
-```
-
-`init-household` is one-time and creates the owner membership. `create-user` assigns a member to the existing household. Password reset revokes every session for that user. Use a disposable database for verification; never reset or downgrade the real `data/budget.db`.
-
-## Compose
-
-Copy the example values, then validate and start the deployment:
-
-```text
-# PowerShell
-Copy-Item .env.example .env
-
-docker compose config
-docker compose up --build
-```
-
-Compose runs Alembic migrations before serving FastAPI. Caddy is the only published service; the backend has no host port and runs one worker with `--no-proxy-headers`. Database files persist in `./data`, and Caddy state persists in named volumes. Production-shaped validation rules and operator ownership/TLS/firewall steps are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
-
-The development Compose binding uses Caddy's internal CA at `https://localhost:8443`. Its exact allowed origin is `https://localhost:8443`, and secure cookies are enabled:
-
-```text
-curl --insecure https://localhost:8443/api/health
-curl --insecure https://localhost:8443/api/unknown
-```
-
-In production, `/openapi.json`, `/docs`, and `/redoc` are disabled and must not fall through to the Angular index. Install and trust the Caddy root certificate before using a browser without a certificate warning. The in-memory limiter is single-worker; behind Caddy, clients initially share the socket IP bucket because arbitrary forwarded headers are not trusted.
-
-## Migrations
-
-The identity schema is Alembic revision `0002_identity`; accounts/categories are `0003_accounts_categories`; transactions are `0004_transactions`; monthly budgets are `0005_budgets`:
-```text
-cd backend
-alembic upgrade head
-alembic current
-```
-
-Use a separate disposable database for downgrade/upgrade checks. Do not downgrade the real database.
-
-## API
-
-- `GET /api/health` is public and non-sensitive.
-- `GET /api/auth/csrf` bootstraps the signed readable CSRF cookie.
-- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, and `POST /api/auth/change-password` implement cookie-backed authentication.
-- `/dashboard` renders the selected-month dashboard: four server-calculated summary cards (all-time non-archived account balance, month income, expenses, net), a sorted spending-by-category list, and up to ten recent transactions. A native labelled month input plus Previous/Next month controls default to the browser's local current month; month state is page-local.
-- `GET /api/dashboard?year=YYYY&month=M` is authenticated and household-scoped. Both parameters are required (year `1–9999`, month `1–12`); missing or invalid values return the shared 422 envelope. Balance is all-time across non-archived accounts and is independent of the selected month; monthly activity includes archived accounts/categories and uses inclusive first/last calendar-date bounds. Spending groups negative transactions by category with positive totals sorted by total descending then category ID; recent rows are the latest ten in the month. `budgets` lists the month's configured category budgets. Safe-integer or SQLite aggregate overflow returns 409 `CONFLICT` for the whole response.
-- Budget endpoints are authenticated and household-scoped: `GET /api/budgets?year=YYYY&month=M` lists the month's budgets with `spent` (negative transactions in the calendar month, regardless of account/archived state, plus injected foreign rows never counted), `remaining` (`limit − spent`, can be negative), and `progress` (`spent/limit`, `1` at the limit, `null` for limit `0`). `PUT /api/budgets/{category_id}?year&month` upserts an integer-cent `limitAmount ≥ 0` for an expense category (income categories 422; creating against an archived category 409; editing the archived row's own budget stays possible; zero is a configured budget). `DELETE` removes it (unknown row 404). Both run in `BEGIN IMMEDIATE` and roll back entirely on any validation/response/overflow failure; overflow of `spent` versus the safe-integer range returns 409 `CONFLICT` before commit.
-- `POST /api/budgets/copy-previous` with `{year, month, overwrite:false}` copies the previous month's non-archived expense-category limits atomically; any existing target rows make the request return 409 `CONFLICT` with `fields: {overwrite}` and change nothing. Retrying with `overwrite:true` (in a fresh request that rereads current source limits) upserts all source rows in one transaction. Budgets for January copy from December of the prior year; `year:1,month:1` is rejected as having no previous month.
-- `/budgets` renders the month's budgets on the dashboard-consistent month navigation: one row per configured category with exact-cent limit/spent/remaining and progress display, set/edit/remove actions, copy-previous with a confirmation when target rows exist, and active-category picker excluding archived and income categories; archived rows remain current rows until removed.
-- `/accounts`, `/categories`, and `/transactions` provide guarded household-scoped management. Transactions support income/expense entry, calendar dates, description search, month/account/category/type filters, full edit, and hard delete with an accessible confirmation.
-- New transaction writes reject archived account or category references. An edit may retain the transaction's own archived account/category reference, but may not switch to a different archived reference.
-- Transaction history returns the full matching result set without pagination; description search uses SQLite's ASCII-only case-insensitive folding, so non-ASCII case variants are not normalized.
-- Account balances derive from exact integer-cent transaction sums; the transaction workflow observed readable `4.410,00 €` (`EUR 4410.00`) in the UI and raw `balance: 441000` from `GET /api/accounts/{id}`.
-- Transaction amounts are nonzero signed cents bounded to `[-9007199254740991, 9007199254740991]`; malformed amounts/dates, sign/category mismatches, and aggregate overflow return validation/conflict errors.
-- Unknown `/api/*` paths return the shared JSON error envelope and never receive the Angular index document.
-
-- `PATCH /api/users/me` updates the authenticated display name; `GET /api/household` returns only the current household's member display names, roles, and active state. Wrong current passwords return a field-level `422` without revoking the session; successful changes revoke all sessions and redirect the browser to login.
-- `GET /api/export/transactions.csv` returns a household-scoped, spreadsheet-safe UTF-8 CSV with optional inclusive date/account/category filters, archived historical references, integer-cent amounts, fixed columns, and private/no-store download headers. CSV is not a restorable database backup.
-
-## Settings and operations
-
-The guarded `/settings` page provides profile, password, read-only household membership, CSV filters/download, and honest backup guidance. Host-operated backup and offline recovery commands, retention rules, scheduler examples, and recovery drills are documented in [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md). Browser restore and public registration are intentionally not provided.
-
-## Accounts and categories
-
-- Account initial balances are signed integer cents in `[-9007199254740991, 9007199254740991]`; input accepts up to 14 whole digits and two decimals with comma or dot separators and no grouping.
-- Names are trimmed, limited to 1–100 Unicode code points, and use case-sensitive exact uniqueness per household (categories per household and type). Archived names remain reserved.
-- Archive is a soft, idempotent action: active rows show by default, archived rows are revealed on demand and read-only, and there are no delete or unarchive endpoints.
-- Editing an account's initial balance warns that it changes the account's current balance and the baseline for its history and requires acknowledgement before saving.
-- The optional default-category prompt runs only during new `init-household`; existing households are never seeded retroactively.
-
-
-Actual deployment requires real server and device evidence for LAN/Tailscale reachability, trusted internal TLS, denied Emby-only access, public IPv4/IPv6 denial, scheduler/permissions, HSTS decision, and firewall/backend-port isolation. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) and the release boundary in [`docs/LUNA_HANDOFF.md`](docs/LUNA_HANDOFF.md).
+[MIT](LICENSE).
