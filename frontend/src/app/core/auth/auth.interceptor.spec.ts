@@ -2,7 +2,8 @@ import { HttpClient, provideHttpClient, withInterceptors } from "@angular/common
 import { HttpTestingController, provideHttpClientTesting } from "@angular/common/http/testing";
 import { Component } from "@angular/core";
 import { TestBed } from "@angular/core/testing";
-import { provideRouter } from "@angular/router";
+import { Router, provideRouter } from "@angular/router";
+import { vi } from "vitest";
 
 import { AuthService } from "./auth.service";
 import { authInterceptor } from "./auth.interceptor";
@@ -31,7 +32,7 @@ describe("authInterceptor", () => {
 
   afterEach(() => http.verify());
 
-  it("clears authenticated state after a protected API returns 401", () => {
+  it("clears authenticated state after a protected API returns 401", async () => {
     const state = {
       user: { id: 1, username: "user", displayName: "User" },
       household: { id: 1, name: "Household" },
@@ -48,5 +49,27 @@ describe("authInterceptor", () => {
     });
 
     expect(auth.authState()).toBeNull();
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).toBe("/login"));
   });
+
+  it.each(["/external/protected", "/api/auth/login"])(
+    "preserves authenticated state after %s returns 401",
+    (url) => {
+      const state = {
+        user: { id: 1, username: "user", displayName: "User" },
+        household: { id: 1, name: "Household" },
+      };
+      auth.login("user", "correct horse battery staple").subscribe();
+      http.expectOne("/api/auth/csrf").flush(null);
+      http.expectOne("/api/auth/login").flush(state);
+
+      httpClient.get(url).subscribe({ error: () => undefined });
+      http.expectOne(url).flush(null, {
+        status: 401,
+        statusText: "Unauthorized",
+      });
+
+      expect(auth.authState()).toEqual(state);
+    },
+  );
 });

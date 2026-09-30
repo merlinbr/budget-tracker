@@ -1,6 +1,6 @@
 import { provideHttpClient, withInterceptors } from "@angular/common/http";
 import { HttpTestingController, provideHttpClientTesting } from "@angular/common/http/testing";
-import { Component } from "@angular/core";
+import { Component, DestroyRef } from "@angular/core";
 import { TestBed } from "@angular/core/testing";
 import { Router, provideRouter } from "@angular/router";
 import { RouterTestingHarness } from "@angular/router/testing";
@@ -59,6 +59,59 @@ describe("authentication lifecycle", () => {
   });
 
   afterEach(() => http.verify());
+
+  it("a late abandoned write cannot release a newer page operation", async () => {
+    const harness = await RouterTestingHarness.create("/settings");
+    const settings = harness.routeDebugElement!.componentInstance as SettingsPage;
+    finishSettingsReads(http);
+    settings.profileForm.controls.displayName.setValue("Old name");
+    settings.saveProfile();
+    const oldWrite = http.expectOne({ method: "PATCH", url: "/api/users/me" });
+
+    // The real guard explicitly permits this auth exit while pending.
+    auth.clear();
+    await harness.navigateByUrl("/login", DestinationPage);
+    expect(oldWrite.cancelled).toBe(false);
+    expect(pending.pending()).toBe(false);
+    signIn(http, auth);
+    await harness.navigateByUrl("/accounts", DestinationPage);
+    const newOwner = harness.routeDebugElement!.injector.get(DestroyRef);
+    const releaseNew = pending.begin(newOwner);
+    oldWrite.flush(null, { status: 422, statusText: "Unprocessable Entity" });
+    expect(pending.pending()).toBe(true);
+
+    const router = TestBed.inject(Router);
+    expect(await router.navigateByUrl("/categories")).toBe(false);
+    expect(router.url).toBe("/accounts");
+    releaseNew();
+    await harness.navigateByUrl("/categories", DestinationPage);
+    expect(router.url).toBe("/categories");
+  });
+
+  it.each([200, 422])("allows re-login/navigation before old profile settlement (%s)", async (status) => {
+    const harness = await RouterTestingHarness.create("/settings");
+    const settings = harness.routeDebugElement!.componentInstance as SettingsPage;
+    finishSettingsReads(http);
+    settings.profileForm.controls.displayName.setValue("Old name");
+    settings.saveProfile();
+    const oldWrite = http.expectOne({ method: "PATCH", url: "/api/users/me" });
+    auth.clear();
+    await harness.navigateByUrl("/login", DestinationPage);
+    expect(pending.pending()).toBe(false);
+    expect(oldWrite.cancelled).toBe(false);
+    signIn(http, auth);
+    await harness.navigateByUrl("/accounts", DestinationPage);
+    await harness.navigateByUrl("/categories", DestinationPage);
+    if (status === 200) {
+      oldWrite.flush({ id: 1, username: "user", displayName: "Old name" });
+    } else {
+      oldWrite.flush(null, { status: 422, statusText: "Unprocessable Entity" });
+    }
+    expect(TestBed.inject(Router).url).toBe("/categories");
+    expect(auth.authState()?.user.id).toBe(identity.user.id);
+    expect(pending.pending()).toBe(false);
+    http.expectNone((r) => r.method === "GET");
+  });
 
   it("releases a profile write when a separate 401 destroys Settings", async () => {
     const harness = await RouterTestingHarness.create("/settings");
