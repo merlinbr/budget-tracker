@@ -184,11 +184,11 @@ export class TransactionsPage {
       pending -= 1;
       if (pending === 0) this.lookupLoading.set(false);
     };
-    this.accountsService.list(true).subscribe({
+    this.accountsService.list(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => { if (request === this.lookupRequest) this.accounts.set(rows); done(); },
       error: (error: unknown) => { if (request === this.lookupRequest) this.lookupError.set(this.errorMessage(error, "Could not load accounts and categories.")); done(); },
     });
-    this.categoriesService.list(true).subscribe({
+    this.categoriesService.list(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => { if (request === this.lookupRequest) this.categories.set(rows); done(); },
       error: (error: unknown) => { if (request === this.lookupRequest) this.lookupError.set(this.errorMessage(error, "Could not load accounts and categories.")); done(); },
     });
@@ -209,7 +209,7 @@ export class TransactionsPage {
     this.announcement.set(null);
     const request = ++this.detailRequest;
     this.detailLoading.set(true);
-    this.transactionsService.get(row.id).subscribe({
+    this.transactionsService.get(row.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (detail) => {
         if (request !== this.detailRequest) return;
         this.detailLoading.set(false);

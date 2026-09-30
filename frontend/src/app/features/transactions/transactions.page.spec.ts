@@ -59,6 +59,42 @@ describe("TransactionsPage", () => {
     return http.expectOne((request) => request.url === "/api/transactions");
   }
 
+  it("cancels lookup, detail and filtered-list GETs on destruction", () => {
+    const accounts = http.expectOne((r) => r.url === "/api/accounts");
+    const categories = http.expectOne((r) => r.url === "/api/categories");
+    const list = initialTransactions();
+    const transaction = {
+      id: 1, accountId: 1, categoryId: 1, amount: -100, description: "Pending",
+      transactionDate: "2026-09-07",
+      createdAt: "2026-09-07T00:00:00Z", updatedAt: "2026-09-07T00:00:00Z",
+    };
+    fixture.componentInstance.startEdit(transaction);
+    const detail = http.expectOne("/api/transactions/1");
+    fixture.destroy();
+    expect(list.cancelled).toBe(true);
+    expect(accounts.cancelled).toBe(true);
+    expect(categories.cancelled).toBe(true);
+    expect(detail.cancelled).toBe(true);
+  });
+
+  it("keeps the newer transaction detail when the old response arrives last", () => {
+    flushLookups();
+    initialTransactions().flush([]);
+    const older = {
+      id: 1, accountId: 1, categoryId: 1, amount: -100, description: "Older",
+      transactionDate: "2026-09-07",
+      createdAt: "2026-09-07T00:00:00Z", updatedAt: "2026-09-07T00:00:00Z",
+    };
+    const newer = { ...older, id: 2, description: "Newer" };
+    fixture.componentInstance.startEdit(older);
+    const oldRequest = http.expectOne("/api/transactions/1");
+    fixture.componentInstance.startEdit(newer);
+    const newRequest = http.expectOne("/api/transactions/2");
+    newRequest.flush(newer);
+    oldRequest.flush(older);
+    expect(fixture.componentInstance.editingTransaction()?.id).toBe(2);
+  });
+
   it("loads archived labels and the exact local current month", () => {
     flushLookups();
     const request = initialTransactions();
