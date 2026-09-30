@@ -1,7 +1,8 @@
 # Authentication lifecycle work package
 
 Date: 2026-09-30
-Status: design approved in conversation; written-spec review pending.
+Status: design and written spec approved by the user; implementation pending.
+Implementation plan: [task-by-task plan](../plans/2026-09-30-authentication-lifecycle.md).
 Origin: `docs/APP_REVIEW.md`, findings C4 and C6.
 
 ## Goal and scope
