@@ -255,10 +255,11 @@ export class BudgetsPage {
       return;
     }
     const period = this.period();
-    this.beginWrite();
-    this.service.upsert(row.categoryId, period, { limitAmount }).pipe(finalize(() => this.endWrite())).subscribe({
+    const finish = this.beginWrite();
+    this.service.upsert(row.categoryId, period, { limitAmount }).pipe(finalize(finish)).subscribe({
       next: () => this.saved("Budget saved.", period, `#budget-edit-${row.categoryId}`),
       error: (error: unknown) => {
+        if (this.destroyRef.destroyed) return;
         if (error instanceof HttpErrorResponse && typeof error.error?.error?.fields?.limitAmount === "string") {
           this.fieldError.set(error.error.error.fields.limitAmount);
         }
@@ -280,10 +281,13 @@ export class BudgetsPage {
     const row = this.removeTarget();
     if (!row || this.pending()) return;
     const period = this.period();
-    this.beginWrite();
-    this.service.remove(row.categoryId, period).pipe(finalize(() => this.endWrite())).subscribe({
+    const finish = this.beginWrite();
+    this.service.remove(row.categoryId, period).pipe(finalize(finish)).subscribe({
       next: () => this.saved("Budget removed. Transactions are unchanged.", period, `#budget-edit-${row.categoryId}`),
-      error: (error: unknown) => this.writeError.set(this.errorMessage(error, "Could not remove budget.")),
+      error: (error: unknown) => {
+        if (this.destroyRef.destroyed) return;
+        this.writeError.set(this.errorMessage(error, "Could not remove budget."));
+      },
     });
   }
 
@@ -300,10 +304,11 @@ export class BudgetsPage {
     if (overwrite ? !this.copyTarget() : !!this.copyTarget()) return;
     const period = this.copyTarget() ?? this.period();
     this.announcement.set(null);
-    this.beginWrite();
-    this.service.copyPrevious({ ...period, overwrite }).pipe(finalize(() => this.endWrite())).subscribe({
+    const finish = this.beginWrite();
+    this.service.copyPrevious({ ...period, overwrite }).pipe(finalize(finish)).subscribe({
       next: () => this.saved("Previous month's budgets copied.", period, "#copy-budgets"),
       error: (error: unknown) => {
+        if (this.destroyRef.destroyed) return;
         if (!overwrite && error instanceof HttpErrorResponse && error.status === 409 && typeof error.error?.error?.fields?.overwrite === "string") {
           this.copyTarget.set(period);
           this.focus("#copy-confirmation");
@@ -326,15 +331,14 @@ export class BudgetsPage {
     return { year, month };
   }
 
-  private beginWrite(): void {
+  private beginWrite(): () => void {
     this.writeError.set(null);
     this.pending.set(true);
-    this.pendingForms.setPending(true);
-  }
-
-  private endWrite(): void {
-    this.pending.set(false);
-    this.pendingForms.setPending(false);
+    const release = this.pendingForms.begin(this.destroyRef);
+    return () => {
+      release();
+      if (!this.destroyRef.destroyed) this.pending.set(false);
+    };
   }
 
   private saved(message: string, period: DashboardPeriod, focus: string): void {

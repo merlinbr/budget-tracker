@@ -2,6 +2,7 @@ import { provideHttpClient } from "@angular/common/http";
 import { provideHttpClientTesting, HttpTestingController } from "@angular/common/http/testing";
 import { ComponentFixture, TestBed } from "@angular/core/testing";
 
+import { PendingFormService } from "../../core/pending-form.service";
 import { CategoriesPage } from "./categories.page";
 
 const row = { id: 1, name: "Groceries", type: "expense" as const, isArchived: false };
@@ -20,6 +21,32 @@ describe("CategoriesPage", () => {
   });
 
   afterEach(() => http.verify());
+
+  it.each([
+    ["create", 200], ["create", 422], ["archive", 200], ["archive", 422],
+  ] as const)("releases abandoned %s on %s without cancelling it", (action, status) => {
+    const page = fixture.componentInstance;
+    if (action === "create") {
+      page.startAdd();
+      page.form.controls.name.setValue("Pending");
+      page.save();
+    } else {
+      page.beginArchive(row);
+      page.confirmArchive();
+    }
+    const write = http.expectOne({ method: "POST", url: action === "create" ? "/api/categories" : "/api/categories/1/archive" });
+    const pending = TestBed.inject(PendingFormService);
+    expect(pending.pending()).toBe(true);
+    fixture.destroy();
+    expect(write.cancelled).toBe(false);
+    expect(pending.pending()).toBe(false);
+    if (status === 200) write.flush(action === "create" ? { ...row, name: "Pending" } : null);
+    else write.flush(null, { status: 422, statusText: "Unprocessable Entity" });
+    expect(pending.pending()).toBe(false);
+    expect(page.announcement()).toBeNull();
+    expect(page.saveError()).toBeNull();
+    http.expectNone((r) => r.method === "GET");
+  });
 
   it.each([{ type: "expense" as const }, { type: "income" as const }])("creates a $type category", ({ type }) => {
     fixture.componentInstance.startAdd();

@@ -2,6 +2,7 @@ import { provideHttpClient } from "@angular/common/http";
 import { provideHttpClientTesting, HttpTestingController } from "@angular/common/http/testing";
 import { ComponentFixture, TestBed } from "@angular/core/testing";
 
+import { PendingFormService } from "../../core/pending-form.service";
 import { localToday } from "../../shared/utilities/money";
 import { TransactionsPage } from "./transactions.page";
 
@@ -17,6 +18,37 @@ describe("TransactionsPage", () => {
   });
 
   afterEach(() => http.verify());
+
+  it.each([
+    ["create", 200], ["create", 422], ["delete", 200], ["delete", 422],
+  ] as const)("releases abandoned %s on %s without cancelling it", (action, status) => {
+    flushLookups();
+    initialTransactions().flush([]);
+    const transaction = {
+      id: 1, accountId: 1, categoryId: 1, amount: -100, description: "Pending",
+      transactionDate: "2026-09-07",
+      createdAt: "2026-09-07T00:00:00Z", updatedAt: "2026-09-07T00:00:00Z",
+    };
+    const page = fixture.componentInstance;
+    if (action === "create") {
+      page.save({ accountId: 1, categoryId: 1, amount: -100, description: "Pending", transactionDate: "2026-09-07" });
+    } else {
+      page.beginDelete(transaction);
+      page.confirmDelete();
+    }
+    const write = http.expectOne({ method: action === "create" ? "POST" : "DELETE", url: action === "create" ? "/api/transactions" : "/api/transactions/1" });
+    const pending = TestBed.inject(PendingFormService);
+    expect(pending.pending()).toBe(true);
+    fixture.destroy();
+    expect(write.cancelled).toBe(false);
+    expect(pending.pending()).toBe(false);
+    if (status === 200) write.flush(action === "create" ? transaction : null);
+    else write.flush(null, { status: 422, statusText: "Unprocessable Entity" });
+    expect(pending.pending()).toBe(false);
+    expect(page.announcement()).toBeNull();
+    expect(page.saveError()).toBeNull();
+    http.expectNone((r) => r.method === "GET");
+  });
 
   function flushLookups(): void {
     http.expectOne((request) => request.url === "/api/accounts" && request.params.get("includeArchived") === "true").flush([]);

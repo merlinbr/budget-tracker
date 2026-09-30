@@ -53,7 +53,6 @@ describe("SettingsPage", () => {
     }).compileComponents();
     router = TestBed.inject(Router);
     pendingForms = TestBed.inject(PendingFormService);
-    pendingForms.setPending(false);
     http = TestBed.inject(HttpTestingController);
     // Sign in after module config, before mounting: page reads identity at construction.
     const auth = TestBed.inject(AuthService);
@@ -65,6 +64,46 @@ describe("SettingsPage", () => {
   });
 
   afterEach(() => http.verify());
+
+  it.each([200, 422])("releases an abandoned profile write on %s without cancelling it", (status) => {
+    readyHousehold();
+    const page = fixture.componentInstance;
+    page.profileForm.controls.displayName.setValue("Pending name");
+    page.saveProfile();
+    const write = http.expectOne({ method: "PATCH", url: "/api/users/me" });
+    expect(pendingForms.pending()).toBe(true);
+    fixture.destroy();
+    expect(pendingForms.pending()).toBe(false);
+    expect(write.cancelled).toBe(false);
+    if (status === 200) write.flush({ id: 1, username: "merlin", displayName: "Pending name" });
+    else write.flush(null, { status: 422, statusText: "Unprocessable Entity" });
+    expect(pendingForms.pending()).toBe(false);
+    expect(page.profileAnnouncement()).toBeNull();
+    expect(page.profileError()).toBeNull();
+    http.expectNone((r) => r.method === "GET");
+  });
+
+  it.each([200, 422])("releases an abandoned password write on %s without cancelling or navigating", (status) => {
+    readyHousehold();
+    type("#settings-current-password", "current password 1");
+    type("#settings-new-password", "new password 12");
+    type("#settings-confirm-password", "new password 12");
+    const page = fixture.componentInstance;
+    page.changePassword();
+    const write = http.expectOne({ method: "POST", url: "/api/auth/change-password" });
+    const navigate = vi.spyOn(router, "navigate");
+    expect(pendingForms.pending()).toBe(true);
+    fixture.destroy();
+    expect(write.cancelled).toBe(false);
+    expect(pendingForms.pending()).toBe(false);
+    if (status === 200) write.flush(null);
+    else write.flush(null, { status: 422, statusText: "Unprocessable Entity" });
+    expect(pendingForms.pending()).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(page.passwordForm.controls.newPassword.value).toBe("new password 12");
+    expect(page.passwordError()).toBeNull();
+    http.expectNone((r) => r.method === "GET");
+  });
 
   function readyHousehold(): void {
     http.expectOne("/api/household").flush(householdDetails);

@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from "@angular/common/http";
 import { PendingFormService } from "../../core/pending-form.service";
-import { Component, ElementRef, inject, signal, viewChild } from "@angular/core";
+import { Component, DestroyRef, ElementRef, inject, signal, viewChild } from "@angular/core";
+import { finalize } from "rxjs";
 import {
   AbstractControl,
   FormBuilder,
@@ -73,6 +74,7 @@ function signedMoneyValidator(control: AbstractControl): ValidationErrors | null
 export class AccountsPage {
   readonly accountsService = inject(AccountsService);
   readonly pendingForms = inject(PendingFormService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly formBuilder = inject(FormBuilder);
   private readonly archiveConfirmation = viewChild<ElementRef<HTMLElement>>("archiveConfirmation");
   readonly form = this.formBuilder.nonNullable.group({
@@ -144,10 +146,21 @@ export class AccountsPage {
     this.isSubmitting.set(true);
     const body = { name: raw.name.trim(), type: raw.type, initialBalance: cents };
     const write = original ? this.accountsService.update(original.id, body) : this.accountsService.create(body);
-    this.pendingForms.setPending(true);
-    write.subscribe({
-      next: () => { this.pendingForms.setPending(false); this.isSubmitting.set(false); this.formOpen.set(false); this.editingAccount.set(null); this.announcement.set(original ? "Account updated." : "Account saved."); this.loadList("Saved, but the account list could not be refreshed."); },
-      error: (error: unknown) => { this.pendingForms.setPending(false); this.isSubmitting.set(false); this.applyServerError(error, "Could not save account."); },
+    const release = this.pendingForms.begin(this.destroyRef);
+    write.pipe(finalize(release)).subscribe({
+      next: () => {
+        if (this.destroyRef.destroyed) return;
+        this.isSubmitting.set(false);
+        this.formOpen.set(false);
+        this.editingAccount.set(null);
+        this.announcement.set(original ? "Account updated." : "Account saved.");
+        this.loadList("Saved, but the account list could not be refreshed.");
+      },
+      error: (error: unknown) => {
+        if (this.destroyRef.destroyed) return;
+        this.isSubmitting.set(false);
+        this.applyServerError(error, "Could not save account.");
+      },
     });
   }
 
@@ -155,9 +168,24 @@ export class AccountsPage {
   cancelArchive(): void { this.archiveTarget.set(null); queueMicrotask(() => this.archiveTrigger?.focus()); }
   confirmArchive(): void {
     const target = this.archiveTarget(); if (!target || this.archivePending() || this.isSubmitting()) return;
-    this.archivePending.set(true); this.pendingForms.setPending(true); this.accountsService.archive(target.id).subscribe({
-      next: () => { this.pendingForms.setPending(false); this.archivePending.set(false); this.archiveTarget.set(null); if (this.editingAccount()?.id === target.id) { this.formOpen.set(false); this.editingAccount.set(null); } this.announcement.set("Account archived."); this.loadList(); queueMicrotask(() => this.addButton()?.nativeElement.focus()); },
-      error: (error: unknown) => { this.pendingForms.setPending(false); this.archivePending.set(false); this.saveError.set(this.errorMessage(error, "Could not archive account.")); if (error instanceof HttpErrorResponse && error.status === 404) this.loadList(); },
+    this.archivePending.set(true);
+    const release = this.pendingForms.begin(this.destroyRef);
+    this.accountsService.archive(target.id).pipe(finalize(release)).subscribe({
+      next: () => {
+        if (this.destroyRef.destroyed) return;
+        this.archivePending.set(false);
+        this.archiveTarget.set(null);
+        if (this.editingAccount()?.id === target.id) { this.formOpen.set(false); this.editingAccount.set(null); }
+        this.announcement.set("Account archived.");
+        this.loadList();
+        queueMicrotask(() => this.addButton()?.nativeElement.focus());
+      },
+      error: (error: unknown) => {
+        if (this.destroyRef.destroyed) return;
+        this.archivePending.set(false);
+        this.saveError.set(this.errorMessage(error, "Could not archive account."));
+        if (error instanceof HttpErrorResponse && error.status === 404) this.loadList();
+      },
     });
   }
 

@@ -39,6 +39,35 @@ describe("BudgetsPage", () => {
 
   afterEach(() => http.verify());
 
+  it.each([
+    ["upsert", 200], ["upsert", 422], ["remove", 200], ["remove", 422], ["copy", 200], ["copy", 422],
+  ] as const)("releases abandoned %s on %s without cancelling it", (action, status) => {
+    ready(action === "remove" ? [baseBudget] : []);
+    if (action === "upsert") {
+      click("Set limit", row());
+      enter("1.00");
+      submit();
+    } else if (action === "remove") {
+      click("Remove budget", row());
+      click("Confirm removal");
+    } else {
+      fixture.componentInstance.copyPrevious();
+    }
+    const write = http.expectOne((r) => r.method === (action === "upsert" ? "PUT" : action === "remove" ? "DELETE" : "POST") &&
+      r.url === (action === "copy" ? "/api/budgets/copy-previous" : "/api/budgets/3"));
+    const pending = TestBed.inject(PendingFormService);
+    expect(pending.pending()).toBe(true);
+    fixture.destroy();
+    expect(write.cancelled).toBe(false);
+    expect(pending.pending()).toBe(false);
+    if (status === 200) write.flush(action === "upsert" ? { ...baseBudget, limitAmount: 100 } : action === "copy" ? [] : null);
+    else write.flush(null, { status: 422, statusText: "Unprocessable Entity" });
+    expect(pending.pending()).toBe(false);
+    expect(fixture.componentInstance.announcement()).toBeNull();
+    expect(fixture.componentInstance.writeError()).toBeNull();
+    http.expectNone((r) => r.method === "GET");
+  });
+
   function reads() {
     return {
       categories: http.expectOne((request) => request.url === "/api/categories"),

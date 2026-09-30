@@ -1,5 +1,6 @@
 import { HttpErrorResponse } from "@angular/common/http";
-import { Component, ElementRef, inject, signal, viewChild } from "@angular/core";
+import { Component, DestroyRef, ElementRef, inject, signal, viewChild } from "@angular/core";
+import { finalize } from "rxjs";
 import { FormBuilder, ReactiveFormsModule, Validators } from "@angular/forms";
 
 import { Category, CategoryType } from "../../core/api/models";
@@ -36,6 +37,7 @@ import { CategoriesService } from "./categories.service";
 })
 export class CategoriesPage {
   readonly pendingForms = inject(PendingFormService);
+  private readonly destroyRef = inject(DestroyRef);
   readonly categoriesService = inject(CategoriesService);
   private readonly formBuilder = inject(FormBuilder);
   private readonly archiveConfirmation = viewChild<ElementRef<HTMLElement>>("archiveConfirmation");
@@ -65,10 +67,54 @@ export class CategoriesPage {
   toggleArchived(event: Event): void { this.includeArchived.set((event.target as HTMLInputElement).checked); this.loadList(); }
   startEdit(category: Category): void { this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); const request = ++this.detailRequest; this.categoriesService.get(category.id).subscribe({ next: (detail) => { if (request !== this.detailRequest) return; if (detail.isArchived) { this.formOpen.set(false); this.editingCategory.set(null); this.saveError.set("That category is archived and read-only."); this.loadList(); return; } this.editingCategory.set(detail); this.formOpen.set(true); this.form.reset({ name: detail.name, type: detail.type }); }, error: (error: unknown) => { if (request !== this.detailRequest) return; this.saveError.set(this.errorMessage(error, "That category is no longer available.")); this.loadList(); } }); }
   cancelForm(): void { if (!this.isSubmitting()) { ++this.detailRequest; this.formOpen.set(false); this.editingCategory.set(null); } }
-  save(): void { this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.form.markAllAsTouched(); if (this.isSubmitting() || this.archivePending() || this.form.invalid) return; const raw = this.form.getRawValue(); this.isSubmitting.set(true); const editing = this.editingCategory(); const write = editing ? this.categoriesService.update(editing.id, { name: raw.name.trim() }) : this.categoriesService.create({ name: raw.name.trim(), type: raw.type }); this.pendingForms.setPending(true); write.subscribe({ next: () => { this.pendingForms.setPending(false); this.isSubmitting.set(false); this.formOpen.set(false); this.editingCategory.set(null); this.announcement.set(editing ? "Category updated." : "Category saved."); this.loadList("Saved, but the category list could not be refreshed."); }, error: (error: unknown) => { this.pendingForms.setPending(false); this.isSubmitting.set(false); this.applyServerError(error, "Could not save category."); } }); }
+  save(): void {
+    this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.form.markAllAsTouched();
+    if (this.isSubmitting() || this.archivePending() || this.form.invalid) return;
+    const raw = this.form.getRawValue();
+    this.isSubmitting.set(true);
+    const editing = this.editingCategory();
+    const write = editing ? this.categoriesService.update(editing.id, { name: raw.name.trim() }) : this.categoriesService.create({ name: raw.name.trim(), type: raw.type });
+    const release = this.pendingForms.begin(this.destroyRef);
+    write.pipe(finalize(release)).subscribe({
+      next: () => {
+        if (this.destroyRef.destroyed) return;
+        this.isSubmitting.set(false);
+        this.formOpen.set(false);
+        this.editingCategory.set(null);
+        this.announcement.set(editing ? "Category updated." : "Category saved.");
+        this.loadList("Saved, but the category list could not be refreshed.");
+      },
+      error: (error: unknown) => {
+        if (this.destroyRef.destroyed) return;
+        this.isSubmitting.set(false);
+        this.applyServerError(error, "Could not save category.");
+      },
+    });
+  }
   beginArchive(category: Category): void { this.archiveTrigger = (document.activeElement as HTMLButtonElement) ?? null; this.archiveTarget.set(category); queueMicrotask(() => this.archiveConfirmation()?.nativeElement.focus()); }
   cancelArchive(): void { this.archiveTarget.set(null); queueMicrotask(() => this.archiveTrigger?.focus()); }
-  confirmArchive(): void { const target = this.archiveTarget(); if (!target || this.archivePending() || this.isSubmitting()) return; this.archivePending.set(true); this.pendingForms.setPending(true); this.categoriesService.archive(target.id).subscribe({ next: () => { this.pendingForms.setPending(false); this.archivePending.set(false); this.archiveTarget.set(null); if (this.editingCategory()?.id === target.id) { this.formOpen.set(false); this.editingCategory.set(null); } this.announcement.set("Category archived."); this.loadList(); queueMicrotask(() => this.addButton()?.nativeElement.focus()); }, error: (error: unknown) => { this.pendingForms.setPending(false); this.archivePending.set(false); this.saveError.set(this.errorMessage(error, "Could not archive category.")); if (error instanceof HttpErrorResponse && error.status === 404) this.loadList(); } }); }
+  confirmArchive(): void {
+    const target = this.archiveTarget(); if (!target || this.archivePending() || this.isSubmitting()) return;
+    this.archivePending.set(true);
+    const release = this.pendingForms.begin(this.destroyRef);
+    this.categoriesService.archive(target.id).pipe(finalize(release)).subscribe({
+      next: () => {
+        if (this.destroyRef.destroyed) return;
+        this.archivePending.set(false);
+        this.archiveTarget.set(null);
+        if (this.editingCategory()?.id === target.id) { this.formOpen.set(false); this.editingCategory.set(null); }
+        this.announcement.set("Category archived.");
+        this.loadList();
+        queueMicrotask(() => this.addButton()?.nativeElement.focus());
+      },
+      error: (error: unknown) => {
+        if (this.destroyRef.destroyed) return;
+        this.archivePending.set(false);
+        this.saveError.set(this.errorMessage(error, "Could not archive category."));
+        if (error instanceof HttpErrorResponse && error.status === 404) this.loadList();
+      },
+    });
+  }
   fieldError(field: string): string { const server = this.fieldErrors()[field]; if (server) return server; const control = this.form.get(field); if (!control?.touched) return ""; if (control.hasError("required")) return "This field is required."; if (control.hasError("minlength")) return "Use at least 1 character."; if (control.hasError("maxlength")) return "Use no more than 100 characters."; return ""; }
   private applyServerError(error: unknown, fallback: string): void { if (error instanceof HttpErrorResponse && error.error?.error?.fields) this.fieldErrors.set(error.error.error.fields); this.saveError.set(this.errorMessage(error, fallback)); }
   private errorMessage(error: unknown, fallback: string): string { if (error instanceof HttpErrorResponse && error.status === 0) return "Could not connect. Check your connection and try again."; return error instanceof HttpErrorResponse && typeof error.error?.error?.message === "string" ? error.error.error.message : fallback; }

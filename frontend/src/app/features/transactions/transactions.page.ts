@@ -2,7 +2,7 @@ import { HttpErrorResponse } from "@angular/common/http";
 import { Component, DestroyRef, ElementRef, inject, signal, viewChild } from "@angular/core";
 import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { FormBuilder, ReactiveFormsModule } from "@angular/forms";
-import { Subject, catchError, map, of, startWith, switchMap } from "rxjs";
+import { Subject, catchError, finalize, map, of, startWith, switchMap } from "rxjs";
 
 import { Account, Category, Transaction, TransactionFilters, TransactionType, TransactionWrite } from "../../core/api/models";
 import { PendingFormService } from "../../core/pending-form.service";
@@ -241,11 +241,11 @@ export class TransactionsPage {
     this.fieldErrors.set({});
     const original = this.editingTransaction();
     this.savePending.set(true);
-    this.pendingForms.setPending(true);
+    const release = this.pendingForms.begin(this.destroyRef);
     const request = original ? this.transactionsService.update(original.id, body) : this.transactionsService.create(body);
-    request.subscribe({
+    request.pipe(finalize(release)).subscribe({
       next: (saved) => {
-        this.pendingForms.setPending(false);
+        if (this.destroyRef.destroyed) return;
         this.savePending.set(false);
         this.formOpen.set(false);
         this.editingTransaction.set(null);
@@ -256,7 +256,7 @@ export class TransactionsPage {
         this.filterRequests.next(this.currentFilters);
       },
       error: (error: unknown) => {
-        this.pendingForms.setPending(false);
+        if (this.destroyRef.destroyed) return;
         this.savePending.set(false);
         this.applyServerError(error, "Could not save transaction.");
       },
@@ -280,10 +280,10 @@ export class TransactionsPage {
     const target = this.deleteTarget();
     if (!target || this.deletePending() || this.savePending()) return;
     this.deletePending.set(true);
-    this.pendingForms.setPending(true);
-    this.transactionsService.remove(target.id).subscribe({
+    const release = this.pendingForms.begin(this.destroyRef);
+    this.transactionsService.remove(target.id).pipe(finalize(release)).subscribe({
       next: () => {
-        this.pendingForms.setPending(false);
+        if (this.destroyRef.destroyed) return;
         this.deletePending.set(false);
         this.deleteTarget.set(null);
         this.saveError.set(null);
@@ -293,7 +293,7 @@ export class TransactionsPage {
         this.focusAfterDelete();
       },
       error: (error: unknown) => {
-        this.pendingForms.setPending(false);
+        if (this.destroyRef.destroyed) return;
         this.deletePending.set(false);
         this.saveError.set(error instanceof HttpErrorResponse && error.status === 404 ? "That transaction was already deleted. Refreshing the list." : this.errorMessage(error, "Could not delete transaction."));
         if (error instanceof HttpErrorResponse && error.status === 404) {

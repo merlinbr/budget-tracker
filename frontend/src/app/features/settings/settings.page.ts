@@ -169,14 +169,12 @@ export class SettingsPage {
     if (this.profileForm.invalid) return;
     const displayName = this.profileForm.getRawValue().displayName.trim();
     this.savingProfile.set(true);
-    this.pendingForms.setPending(true);
+    const release = this.pendingForms.begin(this.destroyRef);
     this.auth.updateDisplayName(displayName)
       .pipe(
         finalize(() => {
-          if (!this.destroyRef.destroyed) {
-            this.savingProfile.set(false);
-            this.pendingForms.setPending(false);
-          }
+          release();
+          if (!this.destroyRef.destroyed) this.savingProfile.set(false);
         }),
       )
       .subscribe({
@@ -214,18 +212,17 @@ export class SettingsPage {
     if (this.passwordForm.invalid) return;
     const { currentPassword, newPassword } = this.passwordForm.getRawValue();
     this.changingPassword.set(true);
-    this.pendingForms.setPending(true);
+    const release = this.pendingForms.begin(this.destroyRef);
     this.auth.changePassword(currentPassword, newPassword)
       .pipe(
         finalize(() => {
-          if (!this.destroyRef.destroyed) {
-            this.changingPassword.set(false);
-            this.pendingForms.setPending(false);
-          }
+          release();
+          if (!this.destroyRef.destroyed) this.changingPassword.set(false);
         }),
       )
       .subscribe({
         next: () => {
+          if (this.destroyRef.destroyed) return;
           // Clear secret inputs before leaving the page.
           this.passwordForm.reset();
           // AuthService.clear() already ran via the tap; navigate to Login with notice.
