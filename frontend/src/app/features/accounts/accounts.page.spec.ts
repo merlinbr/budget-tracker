@@ -1,18 +1,32 @@
-import { provideHttpClient } from "@angular/common/http";
+import { provideHttpClient, withInterceptors } from "@angular/common/http";
+import { Component } from "@angular/core";
+import { provideRouter } from "@angular/router";
 import { provideHttpClientTesting, HttpTestingController } from "@angular/common/http/testing";
 import { ComponentFixture, TestBed } from "@angular/core/testing";
 
+import { AuthService } from "../../core/auth/auth.service";
+import { authInterceptor } from "../../core/auth/auth.interceptor";
 import { PendingFormService } from "../../core/pending-form.service";
 import { AccountsPage } from "./accounts.page";
 
 const row = { id: 1, name: "Main", type: "checking" as const, initialBalance: 0, balance: 0, isArchived: false };
+
+@Component({ standalone: true, template: "" })
+class DestinationPage {}
 
 describe("AccountsPage", () => {
   let fixture: ComponentFixture<AccountsPage>;
   let http: HttpTestingController;
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [AccountsPage], providers: [provideHttpClient(), provideHttpClientTesting()] }).compileComponents();
+    await TestBed.configureTestingModule({
+      imports: [AccountsPage],
+      providers: [
+        provideHttpClient(withInterceptors([authInterceptor])),
+        provideHttpClientTesting(),
+        provideRouter([{ path: "login", component: DestinationPage }]),
+      ],
+    }).compileComponents();
     fixture = TestBed.createComponent(AccountsPage);
     http = TestBed.inject(HttpTestingController);
     fixture.detectChanges();
@@ -21,6 +35,56 @@ describe("AccountsPage", () => {
   });
 
   afterEach(() => http.verify());
+
+  it("cancels account list and detail GETs on destruction", () => {
+    fixture.componentInstance.loadList();
+    const list = http.expectOne((r) => r.url === "/api/accounts");
+    fixture.componentInstance.startEdit(row);
+    const detail = http.expectOne("/api/accounts/1");
+    fixture.destroy();
+    expect(list.cancelled).toBe(true);
+    expect(detail.cancelled).toBe(true);
+  });
+
+  it("keeps the newer account detail when the old response arrives last", () => {
+    const newer = { ...row, id: 2, name: "Newer account" };
+    fixture.componentInstance.startEdit(row);
+    const oldRequest = http.expectOne("/api/accounts/1");
+    fixture.componentInstance.startEdit(newer);
+    const newRequest = http.expectOne("/api/accounts/2");
+    newRequest.flush(newer);
+    oldRequest.flush(row);
+    expect(fixture.componentInstance.editingAccount()?.id).toBe(2);
+    expect(fixture.componentInstance.form.controls.name.value).toBe("Newer account");
+  });
+
+  it("cancels an abandoned account GET before it can clear a newer login", () => {
+    const auth = TestBed.inject(AuthService);
+    const identity = {
+      user: { id: 1, username: "user", displayName: "User" },
+      household: { id: 10, name: "Household" },
+    };
+    const login = () => {
+      auth.login("user", "correct horse battery staple").subscribe();
+      http.expectOne("/api/auth/csrf").flush(null);
+      http.expectOne("/api/auth/login").flush(identity);
+    };
+    login();
+    fixture.componentInstance.loadList();
+    const abandoned = http.expectOne((r) => r.url === "/api/accounts");
+    fixture.destroy();
+
+    auth.logout().subscribe();
+    http.expectOne("/api/auth/csrf").flush(null);
+    http.expectOne("/api/auth/logout").flush(null);
+    login();
+    // Deliver the real interceptor error only while the request is still live.
+    if (!abandoned.cancelled) {
+      abandoned.flush(null, { status: 401, statusText: "Unauthorized" });
+    }
+    expect(auth.authState()).toEqual(identity);
+    expect(abandoned.cancelled).toBe(true);
+  });
 
   it.each([
     ["create", 200], ["create", 422], ["archive", 200], ["archive", 422],

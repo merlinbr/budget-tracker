@@ -22,6 +22,28 @@ describe("CategoriesPage", () => {
 
   afterEach(() => http.verify());
 
+  it("cancels category list and detail GETs on destruction", () => {
+    fixture.componentInstance.loadList();
+    const list = http.expectOne((r) => r.url === "/api/categories");
+    fixture.componentInstance.startEdit(row);
+    const detail = http.expectOne("/api/categories/1");
+    fixture.destroy();
+    expect(list.cancelled).toBe(true);
+    expect(detail.cancelled).toBe(true);
+  });
+
+  it("keeps the newer category detail when the old response arrives last", () => {
+    const newer = { ...row, id: 2, name: "Newer category" };
+    fixture.componentInstance.startEdit(row);
+    const oldRequest = http.expectOne("/api/categories/1");
+    fixture.componentInstance.startEdit(newer);
+    const newRequest = http.expectOne("/api/categories/2");
+    newRequest.flush(newer);
+    oldRequest.flush(row);
+    expect(fixture.componentInstance.editingCategory()?.id).toBe(2);
+    expect(fixture.componentInstance.form.controls.name.value).toBe("Newer category");
+  });
+
   it.each([
     ["create", 200], ["create", 422], ["archive", 200], ["archive", 422],
   ] as const)("releases abandoned %s on %s without cancelling it", (action, status) => {

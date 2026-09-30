@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from "@angular/common/http";
 import { Component, DestroyRef, ElementRef, inject, signal, viewChild } from "@angular/core";
 import { finalize } from "rxjs";
+import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { FormBuilder, ReactiveFormsModule, Validators } from "@angular/forms";
 
 import { Category, CategoryType } from "../../core/api/models";
@@ -63,9 +64,53 @@ export class CategoriesPage {
   constructor() { this.loadList(); }
   startAdd(): void { ++this.detailRequest; this.editingCategory.set(null); this.formOpen.set(true); this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.form.reset({ name: "", type: "expense" }); }
   group(type: CategoryType): Category[] { return this.categories().filter((category) => category.type === type); }
-  loadList(refreshMessage?: string): void { const request = ++this.listRequest; this.isLoading.set(true); this.listError.set(null); this.categoriesService.list(this.includeArchived()).subscribe({ next: (rows) => { if (request === this.listRequest) this.categories.set(rows); }, error: (error: unknown) => { if (request === this.listRequest) { this.isLoading.set(false); this.listError.set(refreshMessage ? `${refreshMessage} ${this.errorMessage(error, "Retry the refresh.")}` : this.errorMessage(error, "Could not load categories.")); } }, complete: () => { if (request === this.listRequest) this.isLoading.set(false); } }); }
+  loadList(refreshMessage?: string): void {
+    const request = ++this.listRequest;
+    this.isLoading.set(true);
+    this.listError.set(null);
+    this.categoriesService.list(this.includeArchived()).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (rows) => { if (request === this.listRequest) this.categories.set(rows); },
+      error: (error: unknown) => {
+        if (request !== this.listRequest) return;
+        this.isLoading.set(false);
+        this.listError.set(refreshMessage
+          ? `${refreshMessage} ${this.errorMessage(error, "Retry the refresh.")}`
+          : this.errorMessage(error, "Could not load categories."));
+      },
+      complete: () => { if (request === this.listRequest) this.isLoading.set(false); },
+    });
+  }
   toggleArchived(event: Event): void { this.includeArchived.set((event.target as HTMLInputElement).checked); this.loadList(); }
-  startEdit(category: Category): void { this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); const request = ++this.detailRequest; this.categoriesService.get(category.id).subscribe({ next: (detail) => { if (request !== this.detailRequest) return; if (detail.isArchived) { this.formOpen.set(false); this.editingCategory.set(null); this.saveError.set("That category is archived and read-only."); this.loadList(); return; } this.editingCategory.set(detail); this.formOpen.set(true); this.form.reset({ name: detail.name, type: detail.type }); }, error: (error: unknown) => { if (request !== this.detailRequest) return; this.saveError.set(this.errorMessage(error, "That category is no longer available.")); this.loadList(); } }); }
+  startEdit(category: Category): void {
+    this.saveError.set(null);
+    this.announcement.set(null);
+    this.fieldErrors.set({});
+    const request = ++this.detailRequest;
+    this.categoriesService.get(category.id).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (detail) => {
+        if (request !== this.detailRequest) return;
+        if (detail.isArchived) {
+          this.formOpen.set(false);
+          this.editingCategory.set(null);
+          this.saveError.set("That category is archived and read-only.");
+          this.loadList();
+          return;
+        }
+        this.editingCategory.set(detail);
+        this.formOpen.set(true);
+        this.form.reset({ name: detail.name, type: detail.type });
+      },
+      error: (error: unknown) => {
+        if (request !== this.detailRequest) return;
+        this.saveError.set(this.errorMessage(error, "That category is no longer available."));
+        this.loadList();
+      },
+    });
+  }
   cancelForm(): void { if (!this.isSubmitting()) { ++this.detailRequest; this.formOpen.set(false); this.editingCategory.set(null); } }
   save(): void {
     this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); this.form.markAllAsTouched();

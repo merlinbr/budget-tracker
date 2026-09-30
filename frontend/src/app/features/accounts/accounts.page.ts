@@ -2,6 +2,7 @@ import { HttpErrorResponse } from "@angular/common/http";
 import { PendingFormService } from "../../core/pending-form.service";
 import { Component, DestroyRef, ElementRef, inject, signal, viewChild } from "@angular/core";
 import { finalize } from "rxjs";
+import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import {
   AbstractControl,
   FormBuilder,
@@ -115,10 +116,19 @@ export class AccountsPage {
 
   loadList(refreshMessage?: string): void {
     const request = ++this.listRequest;
-    this.isLoading.set(true); this.listError.set(null);
-    this.accountsService.list(this.includeArchived()).subscribe({
+    this.isLoading.set(true);
+    this.listError.set(null);
+    this.accountsService.list(this.includeArchived()).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
       next: (rows) => { if (request === this.listRequest) this.accounts.set(rows); },
-      error: (error: unknown) => { if (request === this.listRequest) { this.isLoading.set(false); this.listError.set(refreshMessage ? `${refreshMessage} ${this.errorMessage(error, "Retry the refresh.")}` : this.errorMessage(error, "Could not load accounts.")); } },
+      error: (error: unknown) => {
+        if (request !== this.listRequest) return;
+        this.isLoading.set(false);
+        this.listError.set(refreshMessage
+          ? `${refreshMessage} ${this.errorMessage(error, "Retry the refresh.")}`
+          : this.errorMessage(error, "Could not load accounts."));
+      },
       complete: () => { if (request === this.listRequest) this.isLoading.set(false); },
     });
   }
@@ -129,9 +139,32 @@ export class AccountsPage {
   }
 
   startEdit(account: Account): void {
-    this.saveError.set(null); this.announcement.set(null); this.fieldErrors.set({}); const request = ++this.detailRequest; this.accountsService.get(account.id).subscribe({
-      next: (detail) => { if (request !== this.detailRequest) return; if (detail.isArchived) { this.formOpen.set(false); this.editingAccount.set(null); this.saveError.set("That account is archived and read-only."); this.loadList(); return; } this.editingAccount.set(detail); this.formOpen.set(true); this.form.reset({ name: detail.name, type: detail.type, initialBalance: signedMoneyInput(detail.initialBalance), acknowledgeBalanceChange: false }); },
-      error: (error: unknown) => { if (request !== this.detailRequest) return; this.saveError.set(this.errorMessage(error, "That account is no longer available.")); this.loadList(); },
+    this.saveError.set(null);
+    this.announcement.set(null);
+    this.fieldErrors.set({});
+    const request = ++this.detailRequest;
+    this.accountsService.get(account.id).pipe(
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (detail) => {
+        if (request !== this.detailRequest) return;
+        if (detail.isArchived) {
+          this.formOpen.set(false);
+          this.editingAccount.set(null);
+          this.saveError.set("That account is archived and read-only.");
+          this.loadList();
+          return;
+        }
+        this.editingAccount.set(detail);
+        this.formOpen.set(true);
+        this.form.reset({ name: detail.name, type: detail.type,
+          initialBalance: signedMoneyInput(detail.initialBalance), acknowledgeBalanceChange: false });
+      },
+      error: (error: unknown) => {
+        if (request !== this.detailRequest) return;
+        this.saveError.set(this.errorMessage(error, "That account is no longer available."));
+        this.loadList();
+      },
     });
   }
 
