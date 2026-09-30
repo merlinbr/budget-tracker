@@ -26,13 +26,69 @@ recovery drill and §11 release evidence remain unverified.
 
 ## Current application review backlog
 
-The [2026-09-29 application review](docs/APP_REVIEW.md) records six new open
-code findings (three reproduced, three source-derived risks), separate
-refactoring notes, and a prioritized next-task list. Earlier `DEPLOYMENT.md`
-§13 closures do not close these findings. Authentication/navigation lifecycle
-and draft preservation are the next coding priorities; actual-host deployment,
-network isolation and backup/recovery remain release gates. No fixes or
-production changes were made by the review.
+The [2026-09-29 application review](docs/APP_REVIEW.md) originally recorded
+six findings; **C4/C6 are now closed at repository level (2026-09-30)** by the
+approved authentication-lifecycle package. C1/C2/C3/C5 remain open. Draft
+preservation (C2), bounded identifiers/concurrent-delete errors (C1/C5) and
+render-aware confirmation focus (C3) are the remaining coding priorities.
+Earlier `DEPLOYMENT.md` §13 closures remain separate. Actual-host deployment,
+network isolation and backup/recovery remain release gates; no deployment or
+merge is authorized by this closure.
+
+### Authentication-lifecycle closure — 2026-09-30
+
+Stable source `b71cc84`; implementation `1d4f8cc`, `c53ecc2`, `534729b`,
+integration/browser tests `81ffd48`, `b71cc84` (plan `318d83b`). Task 1–5
+independent scoped reviews approved code/spec; Task 5 has a deferred private
+scratch cleanup minor. Final whole-branch controller review remains pending.
+[Detailed reproduction, named regressions and workflow evidence](docs/APP_REVIEW.md#authentication-lifecycle-verification--2026-09-30)
+records C4's actual-router Settings PATCH → separate GET401 → destruction →
+uncancelled 422 settlement failure (**pending true, expected false**) and C6's
+abandoned account GET → destruction/logout/new login → old interceptor401
+failure (**auth null, expected identity**), both before correction. Current
+unit acceptance proves independent/idempotent ownership, unregistering,
+newer-lock isolation, all required GET cancellations and retained sequence/
+filter supersession; writes continue without dead UI updates/new GETs.
+Production interceptor/login/restoration exceptions remain unchanged.
+
+Fresh integrated commands (all exit 0; private scratch `task-6-*.log` and
+`task-6-backend.xml` retain full output):
+
+- `cd backend && C:/Python314/python.exe -m pytest -q --junitxml=<scratch>/task-6-backend.xml`:
+  **303 passed / 5 skipped**, 308 tests, 0 failures/errors (JUnit totals).
+  Four symlink guards and one POSIX owner/mode guard skipped; two dependency
+  deprecations and 256 Alembic warnings remain (258 total). The original venv
+  lacks argon2; matching global installed dependencies were used.
+- `cd frontend && npm test -- --watch=false`: **117 tests / 16 files passed**;
+  four existing jsdom document-navigation warnings.
+- `cd frontend && npm run build`: production build passed, 462.74 kB initial.
+- `cd frontend && npx playwright test`: **26 passed**, 1 worker, 1.2m, no
+  retries occurred. Includes all 10 changed-path tests at **1280×900 and
+  390×844**: pending profile/real expiry/re-login/navigation/sign-out before
+  and after held successful PATCH delivery; abandoned Accounts/Categories
+  lists and Transactions account lookup after new login; live protected401
+  redirect/recovery. Protected reads/auth-me 200 and original profile UI
+  restoration are checked. Browser late delivery is an attempt, not proof
+  of Angular receipt; detail cancellation/newer-write overlap are unit proof.
+  No new pixel-level/accessibility audit or server-write rollback is claimed.
+
+Playwright explicitly unset `BUDGET_E2E_DATABASE_URL`, used
+`PYTHON=C:/Python314/python.exe`, and set `BUDGET_E2E_DATA_DIRECTORY` to
+`.superpowers/sdd/2026-09-30-authentication-lifecycle/task-6-disposable` in this
+worktree. Unchanged marker/config/teardown isolated disposable data. Actual
+post-run leftovers: `budget-tracker-e2e-jiTM5p/budget.db`, `budget.db-shm`,
+`budget.db-wal`; ownership marker removed, deletion **not complete**, cause
+unproven. Task 5 leftovers also remain deferred. One earlier pre-delivery
+Transactions login service-unavailable failure has unknown cause; no recurrence
+in final Task 5 30+10 trace-off tests or this full run does not explain it.
+Baseline npm audit two moderate dependencies and four optional/blocked
+install-script notices remain; no install/audit rerun or dependency upgrade.
+No real household data, backend/deployment/dependency files or unrelated
+findings were changed. Source/caller/diff/link/whitespace checks passed;
+no `setPending` remains in production/tests. Full evidence/report is private
+scratch, not a published bundle. Release remains **release candidate with
+deployment gates pending**; O1–O5 and actual host/network/backup acceptance
+remain open.
 
 ## Completed
 

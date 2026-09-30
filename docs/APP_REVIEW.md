@@ -2,9 +2,9 @@
 
 ## Assessment and scope
 
-**Status: implemented household-budget MVP; release candidate with deployment gates pending.** The architecture fits a small private household deployment. Six code findings remain open from this review; three were reproduced and three are source-derived risks requiring targeted reproduction before a fix is claimed.
+**Status: implemented household-budget MVP; release candidate with deployment gates pending.** The architecture fits a small private household deployment. Four code findings remain open (C1/C2/C3/C5). C4/C6 were reproduced and corrected in the approved authentication-lifecycle package, with integrated verification recorded on 2026-09-30 below. The original review had three reproduced findings and three source-derived risks.
 
-This document records the review, not an implementation plan or authorization to deploy. No application source, real household database, server configuration or network policy was changed. The earlier eleven readiness findings in `DEPLOYMENT.md` §13 have separate repository-level closure; that does not close the new findings below.
+This document records review and subsequent scoped verification, not authorization to deploy. The original review changed no application source, real household database, server configuration or network policy; the later approved C4/C6 frontend changes are recorded below. The earlier eleven readiness findings in `DEPLOYMENT.md` §13 have separate repository-level closure; that does not close the new findings below.
 
 The product is a private, self-hosted household budget tracker: individual logins, shared household accounts/categories/transactions, monthly budgets, a selected-month dashboard, basic settings and CSV export. Access must require LAN/authorized Tailscale reachability **and** application authentication. Product scope: [MVP specification](../BUDGET_TRACKER_MVP_SPEC.md), §§1–3.
 
@@ -65,7 +65,7 @@ Priorities express task order/urgency, not vulnerability severity. No authentica
 
 ### C4 — Settings can leave global pending state stuck after destruction
 
-**Priority:** P1. **Evidence:** [INFERENCE] from source; not runtime-reproduced. **Status:** open, targeted reproduction required.
+**Priority:** P1. **Evidence:** originally source-derived; reproduced before correction. **Status:** closed at repository level, 2026-09-30; see [authentication-lifecycle verification](#authentication-lifecycle-verification--2026-09-30).
 
 - **Locations:** [`settings.page.ts:171–179,216–225`](../frontend/src/app/features/settings/settings.page.ts#L171), [`pending-form.service.ts`](../frontend/src/app/core/pending-form.service.ts), [`auth.guard.ts:29–30`](../frontend/src/app/core/auth/auth.guard.ts#L29), [`app-shell.ts:113–116`](../frontend/src/app/layout/app-shell.ts#L113).
 - **Scenario:** a profile/password mutation is outstanding when another request produces a `401` and redirects to login. The route guard permits login navigation, destroying Settings. When the mutation settles, its finalizer skips clearing the root-provided pending flag because the component is destroyed.
@@ -85,7 +85,7 @@ Priorities express task order/urgency, not vulnerability severity. No authentica
 
 ### C6 — Abandoned reads can clear a newer authenticated session
 
-**Priority:** P1. **Evidence:** [INFERENCE] from source; not runtime-reproduced. **Status:** open, targeted reproduction required.
+**Priority:** P1. **Evidence:** originally source-derived; reproduced before correction. **Status:** closed at repository level, 2026-09-30; see [authentication-lifecycle verification](#authentication-lifecycle-verification--2026-09-30).
 
 - **Locations:** [`accounts.page.ts:114–133`](../frontend/src/app/features/accounts/accounts.page.ts#L114), [`categories.page.ts:64–66`](../frontend/src/app/features/categories/categories.page.ts#L64), [`transactions.page.ts:177–225`](../frontend/src/app/features/transactions/transactions.page.ts#L177), [`auth.interceptor.ts:15–30`](../frontend/src/app/core/auth/auth.interceptor.ts#L15).
 - **Scenario:** some page-owned list/detail/lookup subscriptions survive navigation. A request from an old session completes with a delayed `401` after logout and a newer login. The global interceptor clears current auth before component request-sequence checks run.
@@ -139,9 +139,9 @@ The Unraid documentation records local two-container/backup/recovery proof and e
 
 ## Short prioritized next-task list
 
-Checkboxes track completed fixes/gates, not whether the finding was documented. They intentionally remain unchecked.
+Checkboxes track completed fixes/gates, not whether the finding was documented. Only the authentication-lifecycle code task is complete; unrelated fixes and operational gates remain unchecked.
 
-- [ ] **P1 — Authentication lifecycle (C4, C6):** reproduce the delayed-request orderings, fix pending ownership and page-owned read cancellation, then prove re-login/navigation/sign-out and legitimate `401` behavior.
+- [x] **P1 — Authentication lifecycle (C4, C6):** original races reproduced, operation-owned pending release and page-owned GET cancellation corrected; re-login/navigation/sign-out, newer-operation overlap and live `401` acceptance passed (2026-09-30).
 - [ ] **P1 — Draft preservation (C2):** guard both account/category Add entry points and empty-state controls; prove failed delayed saves retain input.
 - [ ] **P2 — Backend errors (C1, C5):** bound all affected identifiers and handle interleaved transaction deletion; prove validation/missing-resource responses instead of `500`.
 - [ ] **P2 — Accessible confirmation focus (C3):** use the existing render-aware focus pattern for all three confirmation workflows and verify keyboard focus restoration.
@@ -154,6 +154,29 @@ Host preparation can proceed independently of code fixes. P0 describes a hard ex
 
 ## Verification record and limits
 
+### Authentication-lifecycle verification — 2026-09-30
+
+**C4/C6 closure is code-level, not release acceptance.** Source tree `b71cc84` was stable for all fresh integrated checks. Independent Task 1–5 correctness/spec reviews approved their scoped packages; Task 5 retained the environmental cleanup minor below. Final whole-branch review is still a controller handoff, not claimed here. Implementation commits: `1d4f8cc`, `c53ecc2`, `534729b`; acceptance tests: `81ffd48`, `b71cc84` (approved plan: `318d83b`).
+
+- **C4 original RED:** `core/auth/auth-lifecycle.spec.ts`, “releases a profile write when a separate 401 destroys Settings”: Settings PATCH outstanding → separate household GET 401 → actual guards/router destroy Settings at login → PATCH remains uncancelled → 422 settlement. `expect(pending.pending()).toBe(false)` received **true** (1 failed test). This is the reported stuck lock, not the separate missing-API RED. The same named regression now passes. `core/pending-form.service.spec.ts` proves independent/idempotent release, destroyed-old-owner versus new-owner isolation and callback unregistering. Lifecycle tests “a late abandoned write cannot release a newer page operation” and “allows re-login/navigation before old profile settlement (%s)” (200/422), plus both `layout/app-shell.spec.ts` sign-out tests, prove actual consumer behavior before/after settlement and while a newer lock exists. Feature page specs cover all 11 mutation entry points with success/error settlement after destruction, no write cancellation, dead UI effects or new GETs.
+- **C6 original RED:** `features/accounts/accounts.page.spec.ts`, “cancels an abandoned account GET before it can clear a newer login”: capture GET → destroy page → logout → newer login → still-live old GET 401 through the actual interceptor. `expect(auth.authState()).toEqual(identity)` received **null** (1 failed / 8 passed). Now identity survives and the request is cancelled. Account/category specs “cancels … list and detail GETs on destruction” and transaction spec “cancels lookup, detail and filtered-list GETs on destruction” pass. Transaction pre-fix diagnostics were list **true**, accounts/categories/detail **false**. Newer-detail ordering tests and existing superseded-filter cancellation remain passing. `core/auth/auth.interceptor.spec.ts` retains live protected-401 login redirection and login/non-API exceptions; production interceptor/restoration behavior is unchanged.
+- **Changed-browser acceptance:** `frontend/e2e/auth-lifecycle.spec.ts` passed all five scenarios at **1280×900 and 390×844** (10 tests within the full run). A real successful profile PATCH has only response delivery held; separate real expired-cookie household 401 destroys Settings. Pending UI/navigation denial and one PATCH are checked; re-login, protected Accounts/Categories GETs and sign-out work before and after old delivery, without reload; original profile is restored through UI. Abandoned Accounts/Categories lists and Transactions account lookup are followed by logout/new login and attempted late real-401 delivery; protected reads/auth-me 200 and sign-out remain usable. A still-mounted protected read 401 redirects and recovers. Browser handler completion is not proof Angular received an abandoned response; direct cancellation/all detail paths and newer-write overlap are unit-layer evidence. Client cancellation does not roll back writes. Viewport proof is workflow automation, not a new pixel-level/accessibility audit.
+
+Fresh commands (all exit 0; full stdout/stderr retained in private `.superpowers/sdd/2026-09-30-authentication-lifecycle/task-6-*.log`):
+
+| Command | Actual result |
+|---|---|
+| `cd backend && C:/Python314/python.exe -m pytest -q --junitxml=<scratch>/task-6-backend.xml` | **303 passed / 5 skipped**, 308 tests, 0 failures/errors (JUnit totals; existing quiet config omits totals) |
+| `cd frontend && npm test -- --watch=false` | **117 passed / 16 files**, four existing jsdom document-navigation warnings |
+| `cd frontend && npm run build` | Production build passed, initial bundle 462.74 kB |
+| `cd frontend && npx playwright test` | **26 passed**, 1 worker, 1.2m; no retries occurred |
+
+Backend skips: four symlink-privilege guards and one POSIX owner/mode guard; actual-host checks stay open. Output retains two dependency deprecations and 256 Alembic warnings (258 warnings total), not pristine output. Matching installed global Python was used; original venv lacks argon2. Baseline npm install evidence has two moderate audit findings and four optional/blocked install-script notices; dependencies were not upgraded and install/audit was not rerun for this closure.
+
+For Playwright, **`BUDGET_E2E_DATABASE_URL` was explicitly unset**, `PYTHON=C:/Python314/python.exe`, and `BUDGET_E2E_DATA_DIRECTORY` was explicitly this plan's private `task-6-disposable` directory. Unchanged configuration created/migrated/seeded `budget-tracker-e2e-jiTM5p` there with its ownership marker; no real household data was used. Post-run inspection found **budget.db / budget.db-shm / budget.db-wal still present, marker removed**. Removal did not complete; precise cause is unproven. Task 5's analogous leftovers remain deferred, not cleaned up or rewritten here. One earlier Task 5 pre-delivery Transactions login service-unavailable failure had unknown cause; it did not recur in final 30+10 trace-off focused tests or this fresh full run. Passing runs do not explain its cause.
+
+Final source inspection found no `setPending` in production/tests; each write captures its own release, destruction unregisters ownership, dead callbacks are guarded, reads have required destruction ownership, and transaction filter supersession remains. No mutation destruction cancellation/replay, production interceptor change, dependency/backend/deployment/database-file change or C1/C2/C3/C5 fix is mixed in. Whitespace/path/link checks passed. Private scratch retains Task 1–5 reports/reviews and original RED logs (`task-1-red-c4.txt`, `task-2-red-c6.log`) plus Task 6 logs/XML/report; these are local evidence, not a published artifact bundle. C1/C2/C3/C5 and O1–O5 remain open. Release classification remains **release candidate with deployment gates pending**.
+
 ### Exercised during the application review
 
 A freshly migrated disposable database and the actual Angular/FastAPI development runtime were used. The real household database was untouched.
@@ -165,12 +188,12 @@ A freshly migrated disposable database and the actual Angular/FastAPI developmen
 - Captured desktop and 390px mobile dashboard screenshots; mobile document width was `390`, with no horizontal overflow in that surface. This is not complete visual/accessibility coverage of every page.
 - Signed out; the financial dashboard API returned `401`.
 - Ran `scripts/backup.py` against the live disposable database and `scripts/restore.py` into a separate recovery database. Both exited `0`; recovered revision was `0005_budgets`, sessions `0`, transaction `-8472`, budget `60000`, integrity `ok`. Actual-host permissions/durability and restored-cookie denial were not exercised in this review.
-- Reproduced C1's account-path `500`, C2's pending-account draft reset and C3's account-confirmation focus failure. Sibling cases and C4/C5/C6 require targeted verification as documented above.
+- Reproduced C1's account-path `500`, C2's pending-account draft reset and C3's account-confirmation focus failure. At that review date, sibling cases and C4/C5/C6 required targeted verification. The subsequent C4/C6 evidence is recorded above; C5 remains open.
 
 Disposable review data was removed and review services/browser were stopped. Screenshots were temporary; no retained screenshot bundle or new regression tests were produced. Documentation of this review does not rerun or upgrade its evidence.
 
 ### Previously recorded repository verification
 
-[`state.md:18–25`](../state.md#L18) records backend **303 passed / 5 skipped**, frontend **77 tests / 13 files**, production build passed and full Playwright **16 passed**. Those suites were not rerun during the application review or this documentation update. Skipped platform guards, actual-host networking/TLS/scheduler/recovery and full release acceptance remain open.
+[`state.md:18–25`](../state.md#L18) records backend **303 passed / 5 skipped**, frontend **77 tests / 13 files**, production build passed and full Playwright **16 passed**. Those historical totals were not rerun during the original application review; fresh authentication-lifecycle totals are recorded above. Skipped platform guards, actual-host networking/TLS/scheduler/recovery and full release acceptance remain open.
 
 This was a source/local-runtime review, not an external security assessment, production deployment or complete proof of every MVP acceptance criterion.
