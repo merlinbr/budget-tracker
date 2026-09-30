@@ -40,7 +40,11 @@ merge is authorized by this closure.
 Stable source `b71cc84`; implementation `1d4f8cc`, `c53ecc2`, `534729b`,
 integration/browser tests `81ffd48`, `b71cc84` (plan `318d83b`). Task 1–5
 independent scoped reviews approved code/spec; Task 5 has a deferred private
-scratch cleanup minor. Final whole-branch controller review remains pending.
+scratch cleanup minor. Final independent whole-branch review
+(`1cdfd068..3ff2c45`, `openai-codex/gpt-6.1-sol`) approved spec/quality and
+source readiness to merge, with no Critical/Important findings. Task 6's
+separate evidence/document review approved both axes. Deferred cleanup and
+historical-login limits below remain; this is not production acceptance.
 [Detailed reproduction, named regressions and workflow evidence](docs/APP_REVIEW.md#authentication-lifecycle-verification--2026-09-30)
 records C4's actual-router Settings PATCH → separate GET401 → destruction →
 uncancelled 422 settlement failure (**pending true, expected false**) and C6's
@@ -51,8 +55,9 @@ newer-lock isolation, all required GET cancellations and retained sequence/
 filter supersession; writes continue without dead UI updates/new GETs.
 Production interceptor/login/restoration exceptions remain unchanged.
 
-Fresh integrated commands (all exit 0; private scratch `task-6-*.log` and
-`task-6-backend.xml` retain full output):
+Fresh integrated commands (all exit 0; private `task-6-*.log` and
+`task-6-backend.xml` were independently reviewed before scratch cleanup;
+durable outcomes recorded here):
 
 - `cd backend && C:/Python314/python.exe -m pytest -q --junitxml=<scratch>/task-6-backend.xml`:
   **303 passed / 5 skipped**, 308 tests, 0 failures/errors (JUnit totals).
@@ -85,8 +90,10 @@ Baseline npm audit two moderate dependencies and four optional/blocked
 install-script notices remain; no install/audit rerun or dependency upgrade.
 No real household data, backend/deployment/dependency files or unrelated
 findings were changed. Source/caller/diff/link/whitespace checks passed;
-no `setPending` remains in production/tests. Full evidence/report is private
-scratch, not a published bundle. Release remains **release candidate with
+no `setPending` remains in production/tests. Original RED, full outcomes and
+all scoped/final reviews were examined in private scratch; this committed
+summary is the durable record, not a published raw bundle. Plan-workspace
+cleanup does not fix or prove success of Windows test teardown. Release remains **release candidate with
 deployment gates pending**; O1–O5 and actual host/network/backup acceptance
 remain open.
 
